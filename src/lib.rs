@@ -37,6 +37,15 @@ pub fn detect(bytes: &[u8]) -> Format {
     }
 }
 
+/// 字节序:多字节整数在文件里是"低位在前"(小端)还是"高位在前"(大端)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endian {
+    /// 小端:最低有效字节排在最前面(x86 / ARM 默认)。
+    Little,
+    /// 大端:最高有效字节排在最前面(网络字节序 / 部分架构)。
+    Big,
+}
+
 /// 一个在字节流上移动的"游标":它记住自己读到哪了,每读一个字节就自动前进,
 /// 越界时安全地返回 `None` 而不是让程序崩溃。
 ///
@@ -71,6 +80,41 @@ impl<'a> ByteReader<'a> {
         let byte = *self.data.get(self.pos)?;
         self.pos += 1;
         Some(byte)
+    }
+
+    /// 读 2 个字节,按指定字节序拼成一个 u16;字节不够返回 None。
+    pub fn read_u16(&mut self, endian: Endian) -> Option<u16> {
+        let bytes = [self.read_u8()?, self.read_u8()?];
+        Some(match endian {
+            Endian::Little => u16::from_le_bytes(bytes),
+            Endian::Big => u16::from_be_bytes(bytes),
+        })
+    }
+
+    /// 读 4 个字节,按指定字节序拼成一个 u32;字节不够返回 None。
+    pub fn read_u32(&mut self, endian: Endian) -> Option<u32> {
+        let bytes = [
+            self.read_u8()?,
+            self.read_u8()?,
+            self.read_u8()?,
+            self.read_u8()?,
+        ];
+        Some(match endian {
+            Endian::Little => u32::from_le_bytes(bytes),
+            Endian::Big => u32::from_be_bytes(bytes),
+        })
+    }
+
+    /// 读 8 个字节,按指定字节序拼成一个 u64;字节不够返回 None。
+    pub fn read_u64(&mut self, endian: Endian) -> Option<u64> {
+        let mut bytes = [0u8; 8];
+        for slot in bytes.iter_mut() {
+            *slot = self.read_u8()?;
+        }
+        Some(match endian {
+            Endian::Little => u64::from_le_bytes(bytes),
+            Endian::Big => u64::from_be_bytes(bytes),
+        })
     }
 }
 
@@ -113,5 +157,39 @@ mod tests {
         assert_eq!(r.read_u8(), Some(0x01)); // 读完唯一一个字节
         assert_eq!(r.read_u8(), None); // 再读就越界了:返回 None,而不是崩溃
         assert_eq!(r.read_u8(), None); // 越界后继续读,依然安稳地返回 None
+    }
+
+    #[test]
+    fn read_u32_little_endian_restores_macho_magic() {
+        // 文件里看到的字节顺序就是 Step 01 的 cf fa ed fe
+        let data = [0xcf, 0xfa, 0xed, 0xfe];
+        let mut r = ByteReader::new(&data);
+        // 小端解读 → 真实数值 0xFEEDFACF(Mach-O 64 位魔数)
+        assert_eq!(r.read_u32(Endian::Little), Some(0xFEED_FACF));
+        assert_eq!(r.position(), 4); // 读了 4 个字节
+    }
+
+    #[test]
+    fn read_u32_big_endian_gives_different_value() {
+        let data = [0xcf, 0xfa, 0xed, 0xfe];
+        let mut r = ByteReader::new(&data);
+        // 同样的字节,大端解读 → 完全不同的数值
+        assert_eq!(r.read_u32(Endian::Big), Some(0xCFFA_EDFE));
+    }
+
+    #[test]
+    fn read_u16_and_u64_work_too() {
+        let data = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let mut r = ByteReader::new(&data);
+        assert_eq!(r.read_u16(Endian::Big), Some(0x0102)); // 读 2 字节
+        assert_eq!(r.read_u16(Endian::Little), Some(0x0403)); // 再读 2 字节(小端:低位在前)
+        assert_eq!(r.read_u32(Endian::Big), Some(0x0506_0708)); // 再读 4 字节
+    }
+
+    #[test]
+    fn read_u32_returns_none_if_not_enough_bytes() {
+        let data = [0x01, 0x02]; // 只有 2 字节,凑不齐 u32 的 4 字节
+        let mut r = ByteReader::new(&data);
+        assert_eq!(r.read_u32(Endian::Little), None); // 安全地失败
     }
 }
