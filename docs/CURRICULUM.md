@@ -25,7 +25,7 @@
 
 ### 模块 A — 基础:字节与格式识别(纯逻辑,无第三方依赖)
 - [x] Step 01 — 拆出库 crate;`Format` 枚举 + `detect()` 按魔数识别格式(enum / match / 单元测试)
-- [ ] Step 02 — `ByteReader` 游标:带边界检查地读 u8(切片、Option、错误处理引子)
+- [x] Step 02 — `ByteReader` 游标:带边界检查地读 u8(切片、Option、错误处理引子)
 - [ ] Step 03 — 读 u16 / u32 / u64,处理大小端(字节序、位运算 / from_le_bytes)
 - [ ] Step 04 — 自定义错误类型 `ParseError`(enum 承载错误、Result、`?` 运算符)
 

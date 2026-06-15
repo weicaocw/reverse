@@ -1,6 +1,6 @@
 # Step 02：造一个"字节游标" `ByteReader`
 
-> 模块：A 基础 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 01](step-01-format-detect.md)
+> 模块：A 基础 ｜ 对应提交：`ad07490` ｜ 测试：✅ 通过 ｜ 上一步：[Step 01](step-01-format-detect.md)
 
 ## 0. 一句话目标
 做一个能在字节流上"边读边自动前进"的游标 `ByteReader`,并且**越界时返回 `None` 而不是让程序崩溃**。
