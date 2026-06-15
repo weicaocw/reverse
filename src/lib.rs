@@ -37,6 +37,43 @@ pub fn detect(bytes: &[u8]) -> Format {
     }
 }
 
+/// 一个在字节流上移动的"游标":它记住自己读到哪了,每读一个字节就自动前进,
+/// 越界时安全地返回 `None` 而不是让程序崩溃。
+///
+/// `<'a>` 是"生命周期标注"。它对编译器承诺:这个游标借用的那段字节
+/// (`data`)活得至少和游标一样久——绝不会出现"数据没了、游标还指着它"的悬空。
+pub struct ByteReader<'a> {
+    /// 被借用的整段字节(只读)。
+    data: &'a [u8],
+    /// 当前读到第几个字节(下一个要读的位置)。
+    pos: usize,
+}
+
+impl<'a> ByteReader<'a> {
+    /// 在一段字节上新建游标,初始位置 0。
+    pub fn new(data: &'a [u8]) -> Self {
+        ByteReader { data, pos: 0 }
+    }
+
+    /// 当前游标位置(下一个要读的字节下标)。
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
+    /// 还剩多少字节没读。
+    pub fn remaining(&self) -> usize {
+        self.data.len() - self.pos
+    }
+
+    /// 读出当前字节并让游标前进 1;若已到末尾(越界)返回 `None`。
+    pub fn read_u8(&mut self) -> Option<u8> {
+        // .get(i) 在越界时返回 None,而不是像 data[i] 那样 panic。
+        let byte = *self.data.get(self.pos)?;
+        self.pos += 1;
+        Some(byte)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -57,5 +94,24 @@ mod tests {
     #[test]
     fn unknown_for_random_bytes() {
         assert_eq!(detect(&[0x00, 0x01, 0x02]), Format::Unknown);
+    }
+
+    #[test]
+    fn reader_reads_bytes_in_order() {
+        let data = [0xaa, 0xbb, 0xcc];
+        let mut r = ByteReader::new(&data);
+        assert_eq!(r.position(), 0); // 一开始在第 0 个字节
+        assert_eq!(r.read_u8(), Some(0xaa)); // 读出第 1 个,游标前进
+        assert_eq!(r.read_u8(), Some(0xbb)); // 读出第 2 个
+        assert_eq!(r.position(), 2); // 已经读了 2 个,游标在第 2 位
+    }
+
+    #[test]
+    fn reader_returns_none_past_the_end() {
+        let data = [0x01];
+        let mut r = ByteReader::new(&data);
+        assert_eq!(r.read_u8(), Some(0x01)); // 读完唯一一个字节
+        assert_eq!(r.read_u8(), None); // 再读就越界了:返回 None,而不是崩溃
+        assert_eq!(r.read_u8(), None); // 越界后继续读,依然安稳地返回 None
     }
 }
