@@ -2,6 +2,45 @@
 //!
 //! 模块 A 的第一块积木:根据文件开头的"魔数"识别可执行文件格式。
 
+use std::fmt;
+
+/// 解析过程中可能出现的错误。每个变体都**携带足够的信息**说明"为什么失败"。
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    /// 文件在还没读够时就结束了;`offset` 指出在哪个偏移处缺字节。
+    UnexpectedEof { offset: usize },
+    /// 魔数不认识,无法识别格式。
+    UnknownFormat,
+}
+
+/// 让 `ParseError` 能被打印成给人看的话(`println!("{}", err)`)。
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ParseError::UnexpectedEof { offset } => {
+                write!(f, "文件意外结束:在偏移 {offset} 处还需要更多字节")
+            }
+            ParseError::UnknownFormat => write!(f, "无法识别的文件格式(未知魔数)"),
+        }
+    }
+}
+
+/// 让 `ParseError` 成为"标准错误类型",可被 `?`、`Box<dyn Error>` 等通用机制接纳。
+impl std::error::Error for ParseError {}
+
+/// 识别文件格式。和 `detect` 不同,它用 `Result` **解释失败原因**:
+/// 文件太短 → `UnexpectedEof`;魔数不认识 → `UnknownFormat`。
+pub fn identify(bytes: &[u8]) -> Result<Format, ParseError> {
+    // 最短的魔数(PE 的 "MZ")也要 2 字节;不足就是文件太短。
+    if bytes.len() < 2 {
+        return Err(ParseError::UnexpectedEof { offset: bytes.len() });
+    }
+    match detect(bytes) {
+        Format::Unknown => Err(ParseError::UnknownFormat),
+        known => Ok(known),
+    }
+}
+
 /// 可执行文件格式。
 ///
 /// `enum`(枚举)表示"一个值只能是这几种之一",非常适合表达"格式"这种封闭集合。
@@ -191,5 +230,28 @@ mod tests {
         let data = [0x01, 0x02]; // 只有 2 字节,凑不齐 u32 的 4 字节
         let mut r = ByteReader::new(&data);
         assert_eq!(r.read_u32(Endian::Little), None); // 安全地失败
+    }
+
+    #[test]
+    fn identify_returns_ok_for_known_format() {
+        assert_eq!(identify(&[0x7f, b'E', b'L', b'F']), Ok(Format::Elf));
+    }
+
+    #[test]
+    fn identify_errors_when_too_short() {
+        // 只有 1 个字节,连魔数都凑不齐 → 报"文件太短",并指出在偏移 1 处缺字节
+        assert_eq!(identify(&[0x7f]), Err(ParseError::UnexpectedEof { offset: 1 }));
+    }
+
+    #[test]
+    fn identify_errors_on_unknown_magic() {
+        assert_eq!(identify(&[0x12, 0x34, 0x56, 0x78]), Err(ParseError::UnknownFormat));
+    }
+
+    #[test]
+    fn parse_error_has_human_readable_message() {
+        // 错误类型能被打印成人话(实现了 Display)
+        let msg = format!("{}", ParseError::UnknownFormat);
+        assert!(msg.contains("无法识别"), "实际信息: {msg}");
     }
 }
