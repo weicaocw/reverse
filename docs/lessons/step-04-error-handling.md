@@ -1,6 +1,6 @@
 # Step 04：自定义错误类型 `ParseError`,从 `Option` 升级到 `Result`
 
-> 模块：A 基础(收官) ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 03](step-03-endianness.md)
+> 模块：A 基础(收官) ｜ 对应提交：`90e03e8` ｜ 测试：✅ 通过 ｜ 上一步：[Step 03](step-03-endianness.md)
 
 ## 0. 一句话目标
 造一个**携带失败原因**的错误类型 `ParseError`,把"识别格式"的返回从 `Option`(只会说"没有")升级到 `Result`(能说"为什么失败"),并第一次让 `main` 用 `?` 优雅地传播错误。

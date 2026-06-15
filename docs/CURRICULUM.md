@@ -27,7 +27,7 @@
 - [x] Step 01 — 拆出库 crate;`Format` 枚举 + `detect()` 按魔数识别格式(enum / match / 单元测试)
 - [x] Step 02 — `ByteReader` 游标:带边界检查地读 u8(切片、Option、错误处理引子)
 - [x] Step 03 — 读 u16 / u32 / u64,处理大小端(字节序、位运算 / from_le_bytes)
-- [ ] Step 04 — 自定义错误类型 `ParseError`(enum 承载错误、Result、`?` 运算符)
+- [x] Step 04 — 自定义错误类型 `ParseError`(enum 承载错误、Result、`?` 运算符)
 
 ### 模块 B — 解析文件头(以 Mach-O 为主,你机器的原生格式)
 - [ ] Step 05 — 解析 Mach-O header:magic / cputype / 文件类型
@@ -60,4 +60,4 @@
 
 ## 进度
 
-当前:**模块 A · Step 01 进行中**。
+当前:**模块 A 已完成 ✅,准备进入模块 B**。
