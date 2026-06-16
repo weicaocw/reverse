@@ -376,6 +376,17 @@ fn cstr_from_strtab(strtab: &[u8], off: usize) -> String {
     String::from_utf8_lossy(&rest[..end]).into_owned()
 }
 
+/// 把编译器修饰过的符号名还原成人类可读形式(去掉哈希后缀)。
+///
+/// Mach-O 给符号加了前导 `_`,所以 `__ZN..E` 去掉一个下划线才是真正的修饰名
+/// `_ZN..E`,再交给 demangle 库还原成 `reverse::main` 这样的可读名。
+/// 非修饰名(如 `_main`)基本原样返回。
+pub fn demangle_symbol(name: &str) -> String {
+    let stripped = name.strip_prefix('_').unwrap_or(name);
+    // `{:#}` 让 demangle 省略末尾的哈希(如 ::h1234...)。
+    format!("{:#}", rustc_demangle::demangle(stripped))
+}
+
 /// 解析符号表(LC_SYMTAB),返回所有符号的名字与值。无符号表则返回空表。
 pub fn parse_symbols(bytes: &[u8]) -> Result<Vec<Symbol>, ParseError> {
     let header = parse_macho_header(bytes)?;
@@ -892,6 +903,17 @@ mod tests {
         assert_eq!(v.len(), 28);
         v.extend_from_slice(&MACHO64_HEADER); // 偏移 28 处放一个 Mach-O 头
         v
+    }
+
+    #[test]
+    fn demangles_rust_symbol() {
+        let d = demangle_symbol("__ZN7reverse4main17h18c33da12f55fe7eE");
+        assert_eq!(d, "reverse::main");
+    }
+
+    #[test]
+    fn demangle_leaves_plain_name() {
+        assert_eq!(demangle_symbol("_main"), "main");
     }
 
     #[test]

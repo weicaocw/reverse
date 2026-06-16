@@ -3,9 +3,9 @@ use std::fs;
 
 use clap::{Parser, Subcommand};
 use reverse::{
-    disassemble_view, entropy_blocks, extract_strings, fat_slice, hex_dump, identify,
-    parse_entry_point, parse_fat_arches, parse_macho_header, parse_segments, parse_symbols,
-    shannon_entropy, Format,
+    demangle_symbol, disassemble_view, entropy_blocks, extract_strings, fat_slice, hex_dump,
+    identify, parse_entry_point, parse_fat_arches, parse_macho_header, parse_segments,
+    parse_symbols, shannon_entropy, Format,
 };
 
 /// 若是胖二进制,取出第一个架构的 Mach-O 切片;否则原样返回。
@@ -45,6 +45,9 @@ enum Cmd {
         /// 最多显示多少个
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// 显示原始修饰名(不反修饰)
+        #[arg(long)]
+        raw: bool,
     },
     /// 提取可见字符串
     Strings {
@@ -86,7 +89,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     match cli.cmd {
         Cmd::Info { path } => cmd_info(&path)?,
         Cmd::Sections { path } => cmd_sections(&path)?,
-        Cmd::Symbols { path, limit } => cmd_symbols(&path, limit)?,
+        Cmd::Symbols { path, limit, raw } => cmd_symbols(&path, limit, raw)?,
         Cmd::Strings { path, min } => cmd_strings(&path, min)?,
         Cmd::Hexdump { path, len } => cmd_hexdump(&path, len)?,
         Cmd::Fat { path } => cmd_fat(&path)?,
@@ -170,14 +173,19 @@ fn cmd_sections(path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_symbols(path: &str, limit: usize) -> Result<(), Box<dyn Error>> {
-    let raw = read_file(path)?;
-    let bytes = first_macho(&raw).to_vec();
+fn cmd_symbols(path: &str, limit: usize, raw: bool) -> Result<(), Box<dyn Error>> {
+    let file = read_file(path)?;
+    let bytes = first_macho(&file).to_vec();
     let syms = parse_symbols(&bytes)?;
     let named: Vec<_> = syms.iter().filter(|s| !s.name.is_empty()).collect();
     println!("符号: 共 {} 个(有名字 {} 个)", syms.len(), named.len());
     for s in named.iter().take(limit) {
-        println!("  {:#018x}  {}", s.value, s.name);
+        let name = if raw {
+            s.name.clone()
+        } else {
+            demangle_symbol(&s.name)
+        };
+        println!("  {:#018x}  {name}", s.value);
     }
     Ok(())
 }
