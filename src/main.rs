@@ -4,7 +4,7 @@ use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
 use reverse::{
-    identify, parse_entry_point, parse_load_commands, parse_macho_header, parse_segments,
+    hex_dump, identify, parse_entry_point, parse_load_commands, parse_macho_header, parse_segments,
     parse_symbols, Format,
 };
 
@@ -97,6 +97,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(e) => println!("格式: 无法解析 —— {e}"),
     }
+
+    // 文件开头的 hex dump(最多 64 字节)。
+    let n = bytes.len().min(64);
+    println!("\nhex dump(前 {n} 字节):");
+    print!("{}", hex_dump(&bytes[..n], 0));
 
     Ok(())
 }

@@ -3,6 +3,7 @@
 //! 模块 A 的第一块积木:根据文件开头的"魔数"识别可执行文件格式。
 
 use std::fmt;
+use std::fmt::Write as _;
 
 /// 解析过程中可能出现的错误。每个变体都**携带足够的信息**说明"为什么失败"。
 #[derive(Debug, PartialEq, Eq)]
@@ -563,6 +564,39 @@ pub fn parse_macho_header(bytes: &[u8]) -> Result<MachHeader, ParseError> {
     })
 }
 
+/// 把字节按经典 hexdump 三栏格式渲染:`地址  十六进制(16 字节)  |ASCII|`。
+///
+/// `base` 是第一个字节对应的起始地址(打印在最左列)。每行 16 字节,
+/// 不可打印字符在 ASCII 列用 `.` 代替。
+pub fn hex_dump(bytes: &[u8], base: u64) -> String {
+    let mut out = String::new();
+    for (i, chunk) in bytes.chunks(16).enumerate() {
+        let addr = base + (i * 16) as u64;
+        // 十六进制列:每字节 "xx ",在第 8 字节后多一个空格分组。
+        let mut hex = String::new();
+        for (j, b) in chunk.iter().enumerate() {
+            let _ = write!(hex, "{b:02x} ");
+            if j == 7 {
+                hex.push(' ');
+            }
+        }
+        // ASCII 列:可打印字符原样,其余用 '.'。
+        let ascii: String = chunk
+            .iter()
+            .map(|&b| {
+                if b.is_ascii_graphic() || b == b' ' {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        // 十六进制列定宽 49(16*3 + 第 8 字节后的额外空格),不足补齐对齐。
+        let _ = writeln!(out, "{addr:08x}  {hex:<49}|{ascii}|");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -944,5 +978,30 @@ mod tests {
         assert_eq!(sec.addr, 0x1_0000_0f00);
         assert_eq!(sec.size, 0x100);
         assert_eq!(sec.offset, 0xf00);
+    }
+
+    #[test]
+    fn hex_dump_one_line() {
+        let d = hex_dump(b"ABCD", 0);
+        assert!(d.starts_with("00000000  41 42 43 44"), "实际: {d}");
+        assert!(d.contains("|ABCD|"), "实际: {d}");
+        assert_eq!(d.lines().count(), 1);
+    }
+
+    #[test]
+    fn hex_dump_non_printable_becomes_dot() {
+        let d = hex_dump(&[0x00, 0x41, 0xff], 0);
+        // 0x00 和 0xff 不可打印 → '.';0x41 = 'A'
+        assert!(d.contains("|.A.|"), "实际: {d}");
+    }
+
+    #[test]
+    fn hex_dump_multiple_lines_addresses() {
+        let data = vec![0u8; 20]; // 20 字节 → 2 行(16 + 4)
+        let d = hex_dump(&data, 0x1000);
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("00001000"));
+        assert!(lines[1].starts_with("00001010")); // 第二行地址 = 0x1000 + 16
     }
 }
