@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 iced-x86 = "1.21.0"
+rustc-demangle = "0.1.27"

@@ -3,9 +3,27 @@ use std::fs;
 
 use clap::{Parser, Subcommand};
 use reverse::{
-    disassemble_view, entropy_blocks, extract_strings, hex_dump, identify, parse_entry_point,
-    parse_macho_header, parse_segments, parse_symbols, shannon_entropy, Format,
+    demangle_symbol, disassemble_view, entropy_blocks, extract_strings, fat_slice, hex_dump,
+    identify, parse_entry_point, parse_fat_arches, parse_macho_header, parse_segments,
+    parse_symbols, shannon_entropy, Format,
 };
+
+/// 若是胖二进制,取出第一个架构的 Mach-O 切片;否则原样返回。
+/// 让 info/sections/disasm 等命令对胖二进制(如 /bin/ls)也能工作。
+fn first_macho(bytes: &[u8]) -> &[u8] {
+    if detect_is_fat(bytes) {
+        if let Ok(arches) = parse_fat_arches(bytes) {
+            if let Some(slice) = arches.first().and_then(|a| fat_slice(bytes, a)) {
+                return slice;
+            }
+        }
+    }
+    bytes
+}
+
+fn detect_is_fat(bytes: &[u8]) -> bool {
+    matches!(identify(bytes), Ok(Format::FatBinary))
+}
 
 /// revx —— 一个学习用的逆向工程命令行工具。
 #[derive(Parser)]
@@ -27,6 +45,9 @@ enum Cmd {
         /// 最多显示多少个
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// 显示原始修饰名(不反修饰)
+        #[arg(long)]
+        raw: bool,
     },
     /// 提取可见字符串
     Strings {
@@ -42,6 +63,8 @@ enum Cmd {
         #[arg(long, default_value_t = 128)]
         len: usize,
     },
+    /// 列出胖/通用二进制里的各架构
+    Fat { path: String },
     /// 熵分析(标记疑似加壳)
     Entropy { path: String },
     /// 反汇编 __text 节区
@@ -66,9 +89,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     match cli.cmd {
         Cmd::Info { path } => cmd_info(&path)?,
         Cmd::Sections { path } => cmd_sections(&path)?,
-        Cmd::Symbols { path, limit } => cmd_symbols(&path, limit)?,
+        Cmd::Symbols { path, limit, raw } => cmd_symbols(&path, limit, raw)?,
         Cmd::Strings { path, min } => cmd_strings(&path, min)?,
         Cmd::Hexdump { path, len } => cmd_hexdump(&path, len)?,
+        Cmd::Fat { path } => cmd_fat(&path)?,
         Cmd::Entropy { path } => cmd_entropy(&path)?,
         Cmd::Disasm { path, count } => cmd_disasm(&path, count)?,
     }
@@ -80,8 +104,35 @@ fn read_file(path: &str) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|e| format!("无法读取 {path}:{e}"))
 }
 
-fn cmd_info(path: &str) -> Result<(), Box<dyn Error>> {
+fn cmd_fat(path: &str) -> Result<(), Box<dyn Error>> {
     let bytes = read_file(path)?;
+    if !detect_is_fat(&bytes) {
+        println!("不是胖二进制(格式: {:?})", identify(&bytes).ok());
+        return Ok(());
+    }
+    let arches = parse_fat_arches(&bytes)?;
+    println!("胖二进制: {} 个架构", arches.len());
+    for a in &arches {
+        println!(
+            "  {:?}  offset={:#x} size={:#x}",
+            a.arch(),
+            a.offset,
+            a.size
+        );
+    }
+    Ok(())
+}
+
+fn cmd_info(path: &str) -> Result<(), Box<dyn Error>> {
+    let raw = read_file(path)?;
+    if detect_is_fat(&raw) {
+        println!("格式: FatBinary —— 各架构:");
+        for a in parse_fat_arches(&raw)? {
+            println!("  {:?}", a.arch());
+        }
+        println!("(以下分析第一个架构切片)");
+    }
+    let bytes = first_macho(&raw).to_vec();
     match identify(&bytes) {
         Ok(fmt) => {
             println!("格式: {fmt:?}");
@@ -104,7 +155,8 @@ fn cmd_info(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_sections(path: &str) -> Result<(), Box<dyn Error>> {
-    let bytes = read_file(path)?;
+    let raw = read_file(path)?;
+    let bytes = first_macho(&raw).to_vec();
     let segs = parse_segments(&bytes)?;
     for s in &segs {
         println!(
@@ -121,13 +173,19 @@ fn cmd_sections(path: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_symbols(path: &str, limit: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = read_file(path)?;
+fn cmd_symbols(path: &str, limit: usize, raw: bool) -> Result<(), Box<dyn Error>> {
+    let file = read_file(path)?;
+    let bytes = first_macho(&file).to_vec();
     let syms = parse_symbols(&bytes)?;
     let named: Vec<_> = syms.iter().filter(|s| !s.name.is_empty()).collect();
     println!("符号: 共 {} 个(有名字 {} 个)", syms.len(), named.len());
     for s in named.iter().take(limit) {
-        println!("  {:#018x}  {}", s.value, s.name);
+        let name = if raw {
+            s.name.clone()
+        } else {
+            demangle_symbol(&s.name)
+        };
+        println!("  {:#018x}  {name}", s.value);
     }
     Ok(())
 }
@@ -164,7 +222,8 @@ fn cmd_entropy(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_disasm(path: &str, count: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = read_file(path)?;
+    let raw = read_file(path)?;
+    let bytes = first_macho(&raw).to_vec();
     let segs = parse_segments(&bytes)?;
     let Some(sec) = segs
         .iter()
