@@ -2,6 +2,7 @@
 //!
 //! 模块 A 的第一块积木:根据文件开头的"魔数"识别可执行文件格式。
 
+use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction, NasmFormatter};
 use std::fmt;
 use std::fmt::Write as _;
 
@@ -659,6 +660,52 @@ pub fn entropy_blocks(bytes: &[u8], block_size: usize) -> Vec<(usize, f64)> {
         .collect()
 }
 
+/// 把一段 x86-64 机器码反汇编成 `(地址, 汇编文本)` 列表。
+///
+/// `rip` 是这段代码的起始虚拟地址(指令里的相对跳转 / 取址会据此算出绝对地址)。
+/// 借助成熟的 `iced-x86` 库——反汇编器极其复杂,绝不该自己手写。
+pub fn disassemble(code: &[u8], rip: u64) -> Vec<(u64, String)> {
+    // 64 = 64 位模式;with_ip 告诉解码器这段代码的起始地址。
+    let mut decoder = Decoder::with_ip(64, code, rip, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
+    let mut instr = Instruction::default();
+    let mut text = String::new();
+    let mut out = Vec::new();
+    while decoder.can_decode() {
+        decoder.decode_out(&mut instr); // 复用同一个 instr,避免反复分配
+        text.clear();
+        formatter.format(&instr, &mut text);
+        out.push((instr.ip(), text.clone()));
+    }
+    out
+}
+
+/// 把机器码反汇编成 objdump 风格的三栏视图字符串:
+/// `地址  机器码字节  汇编指令`,最多 `max` 条。
+pub fn disassemble_view(code: &[u8], rip: u64, max: usize) -> String {
+    let mut decoder = Decoder::with_ip(64, code, rip, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
+    let mut instr = Instruction::default();
+    let mut text = String::new();
+    let mut out = String::new();
+    let mut count = 0;
+    while decoder.can_decode() && count < max {
+        decoder.decode_out(&mut instr);
+        text.clear();
+        formatter.format(&instr, &mut text);
+        // 取出本条指令对应的原始字节:从 (ip - rip) 起、长度 instr.len()。
+        let start = (instr.ip() - rip) as usize;
+        let bytes = &code[start..start + instr.len()];
+        let mut hex = String::new();
+        for b in bytes {
+            let _ = write!(hex, "{b:02x} ");
+        }
+        let _ = writeln!(out, "{:#012x}  {hex:<22}{text}", instr.ip());
+        count += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1040,6 +1087,46 @@ mod tests {
         assert_eq!(sec.addr, 0x1_0000_0f00);
         assert_eq!(sec.size, 0x100);
         assert_eq!(sec.offset, 0xf00);
+    }
+
+    #[test]
+    fn disassemble_view_shows_bytes_and_asm() {
+        let v = disassemble_view(&[0x90, 0xc3], 0x1000, 10);
+        let lines: Vec<&str> = v.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].contains("90") && lines[0].contains("nop"),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains("c3") && lines[1].contains("ret"),
+            "{}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn disassemble_view_respects_max() {
+        let v = disassemble_view(&[0x90, 0x90, 0x90, 0x90], 0, 2);
+        assert_eq!(v.lines().count(), 2); // 4 个 nop,但只要 2 条
+    }
+
+    #[test]
+    fn disassembles_nop_and_ret() {
+        let out = disassemble(&[0x90, 0xc3], 0x1000);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], (0x1000, "nop".to_string()));
+        assert_eq!(out[1], (0x1001, "ret".to_string()));
+    }
+
+    #[test]
+    fn disassembles_mov_eax_imm() {
+        // b8 01 00 00 00 = mov eax, 1
+        let out = disassemble(&[0xb8, 0x01, 0x00, 0x00, 0x00], 0x2000);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0, 0x2000);
+        assert!(out[0].1.starts_with("mov eax"), "实际: {}", out[0].1);
     }
 
     #[test]

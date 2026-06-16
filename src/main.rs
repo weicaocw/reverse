@@ -4,8 +4,9 @@ use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
 use reverse::{
-    entropy_blocks, extract_strings, hex_dump, identify, parse_entry_point, parse_load_commands,
-    parse_macho_header, parse_segments, parse_symbols, shannon_entropy, Format,
+    disassemble_view, entropy_blocks, extract_strings, hex_dump, identify, parse_entry_point,
+    parse_load_commands, parse_macho_header, parse_segments, parse_symbols, shannon_entropy,
+    Format,
 };
 
 // main 现在返回 Result:出错时可以用 ? 直接向上传播,Rust 会帮我们打印错误并以非 0 退出。
@@ -119,6 +120,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  高熵块(>7.2,4KB/块): {} 个", high.len());
     for (off, h) in high.iter().take(5) {
         println!("    {off:#08x}  熵={h:.3}");
+    }
+
+    // 反汇编 __text 节区开头的若干字节(若能找到)。
+    if let Ok(segs) = parse_segments(&bytes) {
+        if let Some(sec) = segs
+            .iter()
+            .flat_map(|s| &s.sections)
+            .find(|s| s.sectname == "__text")
+        {
+            let start = sec.offset as usize;
+            let n = (sec.size as usize).min(256);
+            if let Some(code) = bytes.get(start..start + n) {
+                println!("\n反汇编 __text(起始地址 {:#x},前 12 条):", sec.addr);
+                print!("{}", disassemble_view(code, sec.addr, 12));
+            }
+        }
     }
 
     Ok(())
