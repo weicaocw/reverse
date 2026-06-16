@@ -1,6 +1,6 @@
 # Step 09：遍历加载命令(load commands)—— 变长记录的循环解析
 
-> 模块：C 加载命令/段/节区/符号 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 08](step-08-arch-filetype-enums.md)
+> 模块：C 加载命令/段/节区/符号 ｜ 对应提交：`3c29bd3` ｜ 测试：✅ 通过 ｜ 上一步：[Step 08](step-08-arch-filetype-enums.md)
 
 ## 0. 一句话目标
 遍历 Mach-O 文件头之后的所有**加载命令(load commands)**——一串变长记录,逐条读出它的类型(`cmd`)和长度(`cmdsize`),装进一个 `Vec`,并把类型翻译成 `LC_SEGMENT_64` 这样的名字。
