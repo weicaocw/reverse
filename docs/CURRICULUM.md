@@ -53,7 +53,7 @@
 
 ### 模块 E — 反汇编(引入第三方 crate)
 - [x] Step 17 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
-- [ ] Step 18 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
+- [x] Step 18 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
 
 ### 模块 F — CLI 产品化
 - [ ] Step 19 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
@@ -62,4 +62,4 @@
 
 ## 进度
 
-当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,模块 D ✅,进入模块 E(Step 17:反汇编,引入第三方 crate)**。
+当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,模块 D ✅,模块 E ✅,进入模块 F(Step 19:clap 子命令 CLI)**。
