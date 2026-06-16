@@ -58,6 +58,8 @@ pub enum Format {
     MachO32,
     /// Windows 的 .exe / .dll
     Pe,
+    /// Mach-O 通用 / 胖二进制(打包多架构,magic 0xCAFEBABE)
+    FatBinary,
     /// 认不出来
     Unknown,
 }
@@ -75,6 +77,9 @@ pub fn detect(bytes: &[u8]) -> Format {
     } else if bytes.starts_with(&[0x4d, 0x5a]) {
         // 4d 5a == 'M' 'Z',Windows PE 文件的开头
         Format::Pe
+    } else if bytes.starts_with(&[0xca, 0xfe, 0xba, 0xbe]) {
+        // ca fe ba be == 0xCAFEBABE(大端),Mach-O 胖二进制
+        Format::FatBinary
     } else {
         Format::Unknown
     }
@@ -290,6 +295,58 @@ impl LoadCommand {
             _ => "LC_UNKNOWN",
         }
     }
+}
+
+/// Mach-O 胖二进制的魔数(大端 0xCAFEBABE)。
+pub const FAT_MAGIC: u32 = 0xCAFE_BABE;
+
+/// 胖二进制里的一个架构条目:指向某个内嵌 Mach-O 切片。
+#[derive(Debug, PartialEq, Eq)]
+pub struct FatArch {
+    /// 该切片的 CPU 架构。
+    pub cputype: u32,
+    /// 切片在文件里的偏移。
+    pub offset: u32,
+    /// 切片大小。
+    pub size: u32,
+}
+
+impl FatArch {
+    /// 可读架构。
+    pub fn arch(&self) -> Arch {
+        Arch::from_cputype(self.cputype)
+    }
+}
+
+/// 解析胖二进制头,返回其中各架构条目。**注意:胖二进制头是大端!**
+pub fn parse_fat_arches(bytes: &[u8]) -> Result<Vec<FatArch>, ParseError> {
+    let mut r = ByteReader::new(bytes);
+    let magic = read_u32_or_eof(&mut r, Endian::Big)?;
+    if magic != FAT_MAGIC {
+        return Err(ParseError::UnknownFormat);
+    }
+    let nfat = read_u32_or_eof(&mut r, Endian::Big)?;
+    let mut arches = Vec::new();
+    for _ in 0..nfat {
+        let cputype = read_u32_or_eof(&mut r, Endian::Big)?;
+        let _cpusubtype = read_u32_or_eof(&mut r, Endian::Big)?;
+        let offset = read_u32_or_eof(&mut r, Endian::Big)?;
+        let size = read_u32_or_eof(&mut r, Endian::Big)?;
+        let _align = read_u32_or_eof(&mut r, Endian::Big)?;
+        arches.push(FatArch {
+            cputype,
+            offset,
+            size,
+        });
+    }
+    Ok(arches)
+}
+
+/// 从胖二进制里取出某个架构对应的 Mach-O 切片(可直接喂给 parse_macho_header 等)。
+pub fn fat_slice<'a>(bytes: &'a [u8], arch: &FatArch) -> Option<&'a [u8]> {
+    let start = arch.offset as usize;
+    let end = start.checked_add(arch.size as usize)?;
+    bytes.get(start..end)
 }
 
 /// LC_SEGMENT_64 命令的类型常量。
@@ -822,6 +879,37 @@ mod tests {
         0x85, 0x00, 0x20, 0x00, // flags    = 0x00200085
         0x00, 0x00, 0x00, 0x00, // reserved = 0
     ];
+
+    fn fat_with_one_arch() -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&FAT_MAGIC.to_be_bytes()); // 大端 ca fe ba be
+        v.extend_from_slice(&1u32.to_be_bytes()); // nfat_arch = 1
+        v.extend_from_slice(&0x0100_0007u32.to_be_bytes()); // cputype x86_64
+        v.extend_from_slice(&3u32.to_be_bytes()); // cpusubtype
+        v.extend_from_slice(&28u32.to_be_bytes()); // offset(头 8 + 一条 20 = 28)
+        v.extend_from_slice(&32u32.to_be_bytes()); // size = 内嵌头 32 字节
+        v.extend_from_slice(&0u32.to_be_bytes()); // align
+        assert_eq!(v.len(), 28);
+        v.extend_from_slice(&MACHO64_HEADER); // 偏移 28 处放一个 Mach-O 头
+        v
+    }
+
+    #[test]
+    fn detect_recognizes_fat_binary() {
+        assert_eq!(detect(&[0xca, 0xfe, 0xba, 0xbe]), Format::FatBinary);
+    }
+
+    #[test]
+    fn parses_fat_and_extracts_macho_slice() {
+        let data = fat_with_one_arch();
+        let arches = parse_fat_arches(&data).unwrap();
+        assert_eq!(arches.len(), 1);
+        assert_eq!(arches[0].arch(), Arch::X86_64);
+        // 取出切片,应能当作正常 Mach-O 解析
+        let slice = fat_slice(&data, &arches[0]).unwrap();
+        assert_eq!(detect(slice), Format::MachO64);
+        assert_eq!(parse_macho_header(slice).unwrap().magic, 0xFEED_FACF);
+    }
 
     #[test]
     fn parses_macho64_header_fields() {
