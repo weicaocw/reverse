@@ -1,6 +1,6 @@
 # Step 06：CI 再加两层质量门 —— 格式检查 + clippy
 
-> 模块：CI/工程化 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过(本地 + CI) ｜ 上一步：[Step 05](step-05-ci-build-test.md)
+> 模块：CI/工程化 ｜ 对应提交：`0f3074a` ｜ 测试：✅ 通过(本地 + CI) ｜ 上一步：[Step 05](step-05-ci-build-test.md)
 
 ## 0. 一句话目标
 给 CI 增加两道自动质量门:① `cargo fmt --all -- --check`(强制统一代码格式),② `cargo clippy --all-targets -- -D warnings`(把 Rust 官方 lint 的每条建议当成错误,一条都不放过)。
