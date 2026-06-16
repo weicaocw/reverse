@@ -36,7 +36,7 @@
 
 ### 模块 B — 解析文件头(以 Mach-O 为主,你机器的原生格式)
 - [x] Step 07 — 解析 Mach-O header:magic / cputype / 文件类型
-- [ ] Step 08 — 架构与位数映射成可读枚举(x86_64 / arm64 …)
+- [x] Step 08 — 架构与位数映射成可读枚举(x86_64 / arm64 …)
 - [ ] Step 09 — 找到入口地址(entry point)
 - [ ] (拓展)ELF header 解析,体会"多格式抽象"
 

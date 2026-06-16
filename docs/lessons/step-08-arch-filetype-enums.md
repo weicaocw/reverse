@@ -1,6 +1,6 @@
 # Step 08：把裸数字翻译成可读枚举(`Arch` / `FileType`)
 
-> 模块：B 解析文件头 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 07](step-07-macho-header.md)
+> 模块：B 解析文件头 ｜ 对应提交：`9171480` ｜ 测试：✅ 通过 ｜ 上一步：[Step 07](step-07-macho-header.md)
 
 ## 0. 一句话目标
 把 Mach-O 头里的 `cputype`(如 `0x01000007`)和 `filetype`(如 `2`)映射成**可读枚举** `Arch::X86_64`、`FileType::Executable`,让工具输出从"魔法数字"变成"人话"。
