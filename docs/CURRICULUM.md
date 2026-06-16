@@ -43,7 +43,7 @@
 - [x] Step 09 — 遍历加载命令(load commands),读出每条的类型与长度
 - [x] Step 10 — 解析段(LC_SEGMENT_64),列出段名、虚拟地址、大小
 - [x] Step 11 — 列出段内节区(.text/.data…)
-- [ ] Step 12 — 找到入口地址(LC_MAIN entryoff)
+- [x] Step 12 — 找到入口地址(LC_MAIN entryoff)
 - [ ] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
