@@ -1,6 +1,6 @@
 # Step 22:支持 fat/通用二进制(终于打开 `/bin/ls`)
 
-> 模块：G 扩展 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 21](step-21-release-ci.md)
+> 模块：G 扩展 ｜ 对应提交：`fdc5393` ｜ 测试：✅ 通过 ｜ 上一步：[Step 21](step-21-release-ci.md)
 
 ## 0. 一句话目标
 解析 Mach-O **胖/通用二进制(fat/universal binary,magic 0xCAFEBABE)**:列出它打包的各个架构,取出某个架构的 Mach-O 切片,让既有的全部分析命令对 `/bin/ls` 这类胖二进制也能工作。
