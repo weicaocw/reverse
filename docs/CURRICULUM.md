@@ -56,7 +56,7 @@
 - [x] Step 18 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
 
 ### 模块 F — CLI 产品化
-- [ ] Step 19 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
+- [x] Step 19 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
 - [ ] Step 20 — 统一错误处理与退出码、彩色输出
 - [ ] Step 21 — release 构建与产物
 

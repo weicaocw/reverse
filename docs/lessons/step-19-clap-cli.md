@@ -1,6 +1,6 @@
 # Step 19：用 clap 做子命令式 CLI
 
-> 模块：F CLI 产品化 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 18](step-18-disasm-view.md)
+> 模块：F CLI 产品化 ｜ 对应提交：`2d14fb0` ｜ 测试：✅ 通过 ｜ 上一步：[Step 18](step-18-disasm-view.md)
 
 ## 0. 一句话目标
 用 `clap`(Rust 主流命令行库)把 `main` 重构成**子命令**:`revx info`、`sections`、`symbols`、`strings`、`hexdump`、`entropy`、`disasm`,各带参数,并自动生成帮助。
