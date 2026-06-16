@@ -29,35 +29,36 @@
 - [x] Step 03 — 读 u16 / u32 / u64,处理大小端(字节序、位运算 / from_le_bytes)
 - [x] Step 04 — 自定义错误类型 `ParseError`(enum 承载错误、Result、`?` 运算符)
 
+### 模块 CI — 工程化(测试套件就绪后提前引入,之后滚动加层)
+- [x] Step 05 — 加 CI:每次 push/PR 自动 build + test
+- [x] Step 06 — CI 加 fmt 检查 + clippy 静态检查(`-D warnings` 零警告)
+- [ ] (后期)release 构建与产物上传
+
 ### 模块 B — 解析文件头(以 Mach-O 为主,你机器的原生格式)
-- [ ] Step 05 — 解析 Mach-O header:magic / cputype / 文件类型
-- [ ] Step 06 — 架构与位数映射成可读枚举(x86_64 / arm64 …)
-- [ ] Step 07 — 找到入口地址(entry point)
+- [ ] Step 07 — 解析 Mach-O header:magic / cputype / 文件类型
+- [ ] Step 08 — 架构与位数映射成可读枚举(x86_64 / arm64 …)
+- [ ] Step 09 — 找到入口地址(entry point)
 - [ ] (拓展)ELF header 解析,体会"多格式抽象"
 
 ### 模块 C — 节区 / 段与符号
-- [ ] Step 08 — 遍历 load commands / program headers
-- [ ] Step 09 — 列出节区(.text/.data…)的名字、地址、大小
-- [ ] Step 10 — 解析符号表,列出函数名
+- [ ] Step 10 — 遍历 load commands / program headers
+- [ ] Step 11 — 列出节区(.text/.data…)的名字、地址、大小
+- [ ] Step 12 — 解析符号表,列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
-- [ ] Step 11 — hex dump(地址 + 十六进制 + ASCII 三栏)
-- [ ] Step 12 — 提取可见字符串(strings)
-- [ ] Step 13 — 计算字节熵值,标记疑似加壳区段
+- [ ] Step 13 — hex dump(地址 + 十六进制 + ASCII 三栏)
+- [ ] Step 14 — 提取可见字符串(strings)
+- [ ] Step 15 — 计算字节熵值,标记疑似加壳区段
 
 ### 模块 E — 反汇编(引入第三方 crate)
-- [ ] Step 14 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
-- [ ] Step 15 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
+- [ ] Step 16 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
+- [ ] Step 17 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
 
 ### 模块 F — CLI 产品化
-- [ ] Step 16 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
-- [ ] Step 17 — 统一错误处理与退出码、彩色输出
-
-### 模块 G — 工程化
-- [ ] Step 18 — 加 CI:build + test
-- [ ] Step 19 — CI 加 fmt 检查 + clippy 静态检查
+- [ ] Step 18 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
+- [ ] Step 19 — 统一错误处理与退出码、彩色输出
 - [ ] Step 20 — release 构建与产物
 
 ## 进度
 
-当前:**模块 A 已完成 ✅,准备进入模块 B**。
+当前:**模块 A ✅ + CI(Step 05–06)✅,准备进入模块 B(Step 07:解析 Mach-O 头)**。
