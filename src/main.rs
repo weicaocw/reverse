@@ -4,8 +4,8 @@ use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
 use reverse::{
-    hex_dump, identify, parse_entry_point, parse_load_commands, parse_macho_header, parse_segments,
-    parse_symbols, Format,
+    extract_strings, hex_dump, identify, parse_entry_point, parse_load_commands,
+    parse_macho_header, parse_segments, parse_symbols, Format,
 };
 
 // main 现在返回 Result:出错时可以用 ? 直接向上传播,Rust 会帮我们打印错误并以非 0 退出。
@@ -102,6 +102,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let n = bytes.len().min(64);
     println!("\nhex dump(前 {n} 字节):");
     print!("{}", hex_dump(&bytes[..n], 0));
+
+    // 提取可见字符串(长度 ≥ 6),打印前 15 条。
+    let strings = extract_strings(&bytes, 6);
+    println!("\n字符串: 共 {} 条(长度≥6),前 15 条:", strings.len());
+    for (off, s) in strings.iter().take(15) {
+        println!("  {off:#08x}  {s}");
+    }
 
     Ok(())
 }

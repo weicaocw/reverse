@@ -597,6 +597,34 @@ pub fn hex_dump(bytes: &[u8], base: u64) -> String {
     out
 }
 
+/// 扫描字节,提取所有"长度 ≥ `min_len` 的连续可打印字符"片段。
+///
+/// 返回 `(起始偏移, 字符串)` 列表。复刻经典 `strings` 命令:
+/// 程序里的路径、URL、提示文本往往直接暴露意图。
+pub fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut cur = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b.is_ascii_graphic() || b == b' ' {
+            if cur.is_empty() {
+                start = i; // 记下这一段的起点
+            }
+            cur.push(b as char);
+        } else if cur.len() >= min_len {
+            // 遇到不可打印字符:当前片段够长就收下(take 取走并清空 cur)。
+            out.push((start, std::mem::take(&mut cur)));
+        } else {
+            cur.clear(); // 太短,丢弃
+        }
+    }
+    // 文件结尾处可能还攒着一段。
+    if cur.len() >= min_len {
+        out.push((start, cur));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -978,6 +1006,27 @@ mod tests {
         assert_eq!(sec.addr, 0x1_0000_0f00);
         assert_eq!(sec.size, 0x100);
         assert_eq!(sec.offset, 0xf00);
+    }
+
+    #[test]
+    fn extracts_strings_with_offsets() {
+        let data = b"\0hello\0\0world!\0";
+        let s = extract_strings(data, 3);
+        assert_eq!(s, vec![(1, "hello".to_string()), (8, "world!".to_string())]);
+    }
+
+    #[test]
+    fn extract_strings_filters_short_runs() {
+        // "ab"(2) 太短被过滤;"hello"(5) 保留
+        let s = extract_strings(b"ab\0hello", 3);
+        assert_eq!(s, vec![(3, "hello".to_string())]);
+    }
+
+    #[test]
+    fn extract_strings_catches_trailing_run() {
+        // 结尾没有终止符,也要能收到
+        let s = extract_strings(b"\0\0tail", 3);
+        assert_eq!(s, vec![(2, "tail".to_string())]);
     }
 
     #[test]
