@@ -296,6 +296,86 @@ pub const LC_SEGMENT_64: u32 = 0x19;
 /// LC_MAIN 命令的类型常量(记录程序入口)。
 pub const LC_MAIN: u32 = 0x8000_0028;
 
+/// LC_SYMTAB 命令的类型常量(符号表)。
+pub const LC_SYMTAB: u32 = 0x02;
+
+/// 一个符号:名字 + 它的值(通常是地址)。
+#[derive(Debug, PartialEq, Eq)]
+pub struct Symbol {
+    /// 符号名(函数 / 全局变量的名字,如 "_main")。
+    pub name: String,
+    /// 符号的值,对函数 / 变量通常是其虚拟地址。
+    pub value: u64,
+}
+
+/// 从字符串表 `strtab` 的 `off` 处读取一个以 0 结尾的字符串。
+fn cstr_from_strtab(strtab: &[u8], off: usize) -> String {
+    let Some(rest) = strtab.get(off..) else {
+        return String::new();
+    };
+    let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+    String::from_utf8_lossy(&rest[..end]).into_owned()
+}
+
+/// 解析符号表(LC_SYMTAB),返回所有符号的名字与值。无符号表则返回空表。
+pub fn parse_symbols(bytes: &[u8]) -> Result<Vec<Symbol>, ParseError> {
+    let header = parse_macho_header(bytes)?;
+    let mut r = ByteReader::new(bytes);
+    r.seek(32).ok_or(ParseError::UnexpectedEof { offset: 32 })?;
+
+    // 第一步:找到 LC_SYMTAB,读出 4 个字段:符号表偏移/数量、字符串表偏移/大小。
+    let mut symtab = None;
+    for _ in 0..header.ncmds {
+        let start = r.position();
+        let cmd = read_u32_or_eof(&mut r, Endian::Little)?;
+        let cmdsize = read_u32_or_eof(&mut r, Endian::Little)?;
+        if cmd == LC_SYMTAB {
+            let symoff = read_u32_or_eof(&mut r, Endian::Little)?;
+            let nsyms = read_u32_or_eof(&mut r, Endian::Little)?;
+            let stroff = read_u32_or_eof(&mut r, Endian::Little)?;
+            let strsize = read_u32_or_eof(&mut r, Endian::Little)?;
+            symtab = Some((symoff, nsyms, stroff, strsize));
+            break;
+        }
+        let next = start + cmdsize as usize;
+        r.seek(next)
+            .ok_or(ParseError::UnexpectedEof { offset: next })?;
+    }
+    let Some((symoff, nsyms, stroff, strsize)) = symtab else {
+        return Ok(Vec::new());
+    };
+
+    // 第二步:切出字符串表。
+    let str_start = stroff as usize;
+    let str_end = str_start
+        .checked_add(strsize as usize)
+        .ok_or(ParseError::UnexpectedEof { offset: str_start })?;
+    let strtab = bytes
+        .get(str_start..str_end)
+        .ok_or(ParseError::UnexpectedEof { offset: str_start })?;
+
+    // 第三步:逐个读 nlist_64(16 字节),用 n_strx 去字符串表查名字。
+    let mut sr = ByteReader::new(bytes);
+    sr.seek(symoff as usize).ok_or(ParseError::UnexpectedEof {
+        offset: symoff as usize,
+    })?;
+    let mut syms = Vec::new();
+    for _ in 0..nsyms {
+        let off = sr.position();
+        let n_strx = read_u32_or_eof(&mut sr, Endian::Little)?;
+        // 跳过 n_type(u8) + n_sect(u8) + n_desc(u16) = 4 字节。
+        sr.read_bytes(4)
+            .ok_or(ParseError::UnexpectedEof { offset: off + 4 })?;
+        let n_value = read_u64_or_eof(&mut sr, Endian::Little)?;
+        let name = cstr_from_strtab(strtab, n_strx as usize);
+        syms.push(Symbol {
+            name,
+            value: n_value,
+        });
+    }
+    Ok(syms)
+}
+
 /// 查找程序入口偏移(entryoff):`main` 距文件起点的字节偏移。
 ///
 /// 返回 `Ok(Some(off))` 表示找到 LC_MAIN;`Ok(None)` 表示文件没有入口(如动态库)。
@@ -784,6 +864,47 @@ mod tests {
             v.extend_from_slice(&0u32.to_le_bytes()); // align/reloff/nreloc/flags/reserved1..3
         }
         v
+    }
+
+    #[test]
+    fn parses_symbol_table() {
+        // 头 ncmds=1, sizeofcmds=24;LC_SYMTAB 指向后面的符号项与字符串表。
+        let mut v = Vec::new();
+        v.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        v.extend_from_slice(&0x0100_0007u32.to_le_bytes());
+        v.extend_from_slice(&3u32.to_le_bytes());
+        v.extend_from_slice(&2u32.to_le_bytes());
+        v.extend_from_slice(&1u32.to_le_bytes()); // ncmds
+        v.extend_from_slice(&24u32.to_le_bytes()); // sizeofcmds
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v.extend_from_slice(&0u32.to_le_bytes());
+        // LC_SYMTAB(cmdsize=24):symoff=56, nsyms=1, stroff=72, strsize=7
+        v.extend_from_slice(&0x02u32.to_le_bytes());
+        v.extend_from_slice(&24u32.to_le_bytes());
+        v.extend_from_slice(&56u32.to_le_bytes()); // symoff
+        v.extend_from_slice(&1u32.to_le_bytes()); // nsyms
+        v.extend_from_slice(&72u32.to_le_bytes()); // stroff
+        v.extend_from_slice(&7u32.to_le_bytes()); // strsize
+                                                  // 偏移 56:一个 nlist_64(16 字节)
+        v.extend_from_slice(&1u32.to_le_bytes()); // n_strx = 1(指向字符串表偏移 1)
+        v.push(0x0f); // n_type
+        v.push(0x01); // n_sect
+        v.extend_from_slice(&0u16.to_le_bytes()); // n_desc
+        v.extend_from_slice(&0x1_0000_1fe0u64.to_le_bytes()); // n_value
+                                                              // 偏移 72:字符串表 "\0_main\0"
+        v.extend_from_slice(b"\0_main\0");
+        let syms = parse_symbols(&v).unwrap();
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].name, "_main");
+        assert_eq!(syms[0].value, 0x1_0000_1fe0);
+    }
+
+    #[test]
+    fn no_symbols_when_no_symtab() {
+        assert_eq!(
+            parse_symbols(&macho_with_one_segment()).unwrap(),
+            Vec::new()
+        );
     }
 
     #[test]

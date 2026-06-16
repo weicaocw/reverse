@@ -4,7 +4,8 @@ use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
 use reverse::{
-    identify, parse_entry_point, parse_load_commands, parse_macho_header, parse_segments, Format,
+    identify, parse_entry_point, parse_load_commands, parse_macho_header, parse_segments,
+    parse_symbols, Format,
 };
 
 // main 现在返回 Result:出错时可以用 ? 直接向上传播,Rust 会帮我们打印错误并以非 0 退出。
@@ -76,6 +77,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     Ok(Some(off)) => println!("入口点: entryoff={off:#x}"),
                     Ok(None) => println!("入口点: 无(可能是动态库)"),
                     Err(e) => println!("入口点解析失败:{e}"),
+                }
+                // 符号表
+                match parse_symbols(&bytes) {
+                    Ok(syms) => {
+                        let named: Vec<_> = syms.iter().filter(|s| !s.name.is_empty()).collect();
+                        println!(
+                            "符号: 共 {} 个(有名字 {} 个),前 10 个:",
+                            syms.len(),
+                            named.len()
+                        );
+                        for s in named.iter().take(10) {
+                            println!("  {:#018x}  {}", s.value, s.name);
+                        }
+                    }
+                    Err(e) => println!("符号表解析失败:{e}"),
                 }
             }
         }
