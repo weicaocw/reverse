@@ -4,7 +4,7 @@ use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
 use reverse::{
-    disassemble, entropy_blocks, extract_strings, hex_dump, identify, parse_entry_point,
+    disassemble_view, entropy_blocks, extract_strings, hex_dump, identify, parse_entry_point,
     parse_load_commands, parse_macho_header, parse_segments, parse_symbols, shannon_entropy,
     Format,
 };
@@ -130,12 +130,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             .find(|s| s.sectname == "__text")
         {
             let start = sec.offset as usize;
-            let n = (sec.size as usize).min(48);
+            let n = (sec.size as usize).min(256);
             if let Some(code) = bytes.get(start..start + n) {
-                println!("\n反汇编 __text(前 {n} 字节,起始地址 {:#x}):", sec.addr);
-                for (addr, asm) in disassemble(code, sec.addr) {
-                    println!("  {addr:#012x}  {asm}");
-                }
+                println!("\n反汇编 __text(起始地址 {:#x},前 12 条):", sec.addr);
+                print!("{}", disassemble_view(code, sec.addr, 12));
             }
         }
     }

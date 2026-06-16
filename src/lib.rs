@@ -680,6 +680,32 @@ pub fn disassemble(code: &[u8], rip: u64) -> Vec<(u64, String)> {
     out
 }
 
+/// 把机器码反汇编成 objdump 风格的三栏视图字符串:
+/// `地址  机器码字节  汇编指令`,最多 `max` 条。
+pub fn disassemble_view(code: &[u8], rip: u64, max: usize) -> String {
+    let mut decoder = Decoder::with_ip(64, code, rip, DecoderOptions::NONE);
+    let mut formatter = NasmFormatter::new();
+    let mut instr = Instruction::default();
+    let mut text = String::new();
+    let mut out = String::new();
+    let mut count = 0;
+    while decoder.can_decode() && count < max {
+        decoder.decode_out(&mut instr);
+        text.clear();
+        formatter.format(&instr, &mut text);
+        // 取出本条指令对应的原始字节:从 (ip - rip) 起、长度 instr.len()。
+        let start = (instr.ip() - rip) as usize;
+        let bytes = &code[start..start + instr.len()];
+        let mut hex = String::new();
+        for b in bytes {
+            let _ = write!(hex, "{b:02x} ");
+        }
+        let _ = writeln!(out, "{:#012x}  {hex:<22}{text}", instr.ip());
+        count += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1061,6 +1087,29 @@ mod tests {
         assert_eq!(sec.addr, 0x1_0000_0f00);
         assert_eq!(sec.size, 0x100);
         assert_eq!(sec.offset, 0xf00);
+    }
+
+    #[test]
+    fn disassemble_view_shows_bytes_and_asm() {
+        let v = disassemble_view(&[0x90, 0xc3], 0x1000, 10);
+        let lines: Vec<&str> = v.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].contains("90") && lines[0].contains("nop"),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains("c3") && lines[1].contains("ret"),
+            "{}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn disassemble_view_respects_max() {
+        let v = disassemble_view(&[0x90, 0x90, 0x90, 0x90], 0, 2);
+        assert_eq!(v.lines().count(), 2); // 4 个 nop,但只要 2 条
     }
 
     #[test]
