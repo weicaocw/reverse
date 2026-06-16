@@ -37,28 +37,29 @@
 ### 模块 B — 解析文件头(以 Mach-O 为主,你机器的原生格式)
 - [x] Step 07 — 解析 Mach-O header:magic / cputype / 文件类型
 - [x] Step 08 — 架构与位数映射成可读枚举(x86_64 / arm64 …)
-- [ ] Step 09 — 找到入口地址(entry point)
-- [ ] (拓展)ELF header 解析,体会"多格式抽象"
+- [ ] (拓展)识别并拆解 fat/通用二进制(0xCAFEBABE);ELF header
 
-### 模块 C — 节区 / 段与符号
-- [ ] Step 10 — 遍历 load commands / program headers
-- [ ] Step 11 — 列出节区(.text/.data…)的名字、地址、大小
-- [ ] Step 12 — 解析符号表,列出函数名
+### 模块 C — 加载命令 / 段 / 节区 / 符号
+- [x] Step 09 — 遍历加载命令(load commands),读出每条的类型与长度
+- [x] Step 10 — 解析段(LC_SEGMENT_64),列出段名、虚拟地址、大小
+- [x] Step 11 — 列出段内节区(.text/.data…)
+- [x] Step 12 — 找到入口地址(LC_MAIN entryoff)
+- [x] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
-- [ ] Step 13 — hex dump(地址 + 十六进制 + ASCII 三栏)
-- [ ] Step 14 — 提取可见字符串(strings)
-- [ ] Step 15 — 计算字节熵值,标记疑似加壳区段
+- [ ] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
+- [ ] Step 15 — 提取可见字符串(strings)
+- [ ] Step 16 — 计算字节熵值,标记疑似加壳区段
 
 ### 模块 E — 反汇编(引入第三方 crate)
-- [ ] Step 16 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
-- [ ] Step 17 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
+- [ ] Step 17 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
+- [ ] Step 18 — 反汇编 `.text`,输出 `地址: 机器码  汇编`
 
 ### 模块 F — CLI 产品化
-- [ ] Step 18 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
-- [ ] Step 19 — 统一错误处理与退出码、彩色输出
-- [ ] Step 20 — release 构建与产物
+- [ ] Step 19 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
+- [ ] Step 20 — 统一错误处理与退出码、彩色输出
+- [ ] Step 21 — release 构建与产物
 
 ## 进度
 
-当前:**模块 A ✅ + CI(Step 05–06)✅,准备进入模块 B(Step 07:解析 Mach-O 头)**。
+当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,进入模块 D(Step 14:hex dump)**。
