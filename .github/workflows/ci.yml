@@ -23,3 +23,20 @@ jobs:
       - run: cargo test --verbose
       # 6. clippy 静态检查:把所有 lint 警告当成错误(-D warnings),一条警告都不放过
       - run: cargo clippy --all-targets -- -D warnings
+
+  # 发布作业:产出优化过的 release 可执行文件,并作为构建产物上传。
+  # needs: test —— 只有 test 作业全绿才会跑,保证发布的一定是通过测试的版本。
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # release 构建:开启优化(-O)、去掉 debug 断言,产物更小更快。
+      - run: cargo build --release --verbose
+      # 把编译出的二进制作为可下载的构建产物上传(保留 7 天)。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: revx-linux-x86_64
+          path: target/release/reverse
+          retention-days: 7
