@@ -159,6 +159,115 @@ impl<'a> ByteReader<'a> {
     }
 }
 
+/// Mach-O 64 位文件头(对应 C 里的 `mach_header_64`,共 8 个 u32 字段 = 32 字节)。
+#[derive(Debug, PartialEq, Eq)]
+pub struct MachHeader {
+    /// 魔数,Mach-O 64 位为 0xFEEDFACF。
+    pub magic: u32,
+    /// CPU 架构(如 0x01000007 = x86_64)。
+    pub cputype: u32,
+    /// CPU 子型号。
+    pub cpusubtype: u32,
+    /// 文件类型(2 = 可执行文件,6 = 动态库 …)。
+    pub filetype: u32,
+    /// 后面跟着多少条加载命令(load command)。
+    pub ncmds: u32,
+    /// 所有加载命令合计多少字节。
+    pub sizeofcmds: u32,
+    /// 标志位。
+    pub flags: u32,
+    /// 64 位头特有的保留字段。
+    pub reserved: u32,
+}
+
+impl MachHeader {
+    /// 可读的 CPU 架构。
+    pub fn arch(&self) -> Arch {
+        Arch::from_cputype(self.cputype)
+    }
+
+    /// 可读的文件类型。
+    pub fn file_type(&self) -> FileType {
+        FileType::from_u32(self.filetype)
+    }
+}
+
+/// CPU 架构,从 Mach-O 的 `cputype` 翻译而来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arch {
+    X86,
+    X86_64,
+    Arm,
+    Arm64,
+    /// 不认识的 cputype,保留原值不丢信息。
+    Other(u32),
+}
+
+impl Arch {
+    /// 把裸 `cputype` 数字映射成可读架构。
+    pub fn from_cputype(cputype: u32) -> Arch {
+        match cputype {
+            0x0000_0007 => Arch::X86,
+            0x0100_0007 => Arch::X86_64,
+            0x0000_000C => Arch::Arm,
+            0x0100_000C => Arch::Arm64,
+            other => Arch::Other(other),
+        }
+    }
+}
+
+/// 文件类型,从 Mach-O 的 `filetype` 翻译而来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileType {
+    Object,
+    Executable,
+    Dylib,
+    Bundle,
+    /// 不认识的 filetype,保留原值。
+    Other(u32),
+}
+
+impl FileType {
+    /// 把裸 `filetype` 数字映射成可读类型。
+    pub fn from_u32(v: u32) -> FileType {
+        match v {
+            1 => FileType::Object,
+            2 => FileType::Executable,
+            6 => FileType::Dylib,
+            8 => FileType::Bundle,
+            other => FileType::Other(other),
+        }
+    }
+}
+
+/// 把 `Option`(读到/没读到)转成 `Result`(读到/EOF 并记下偏移)的小助手。
+fn read_u32_or_eof(r: &mut ByteReader, endian: Endian) -> Result<u32, ParseError> {
+    let offset = r.position();
+    r.read_u32(endian)
+        .ok_or(ParseError::UnexpectedEof { offset })
+}
+
+/// 解析 Mach-O 64 位文件头。当前支持最常见的小端 64 位变体;
+/// 不是 Mach-O 64 → `UnknownFormat`;字节不够 → `UnexpectedEof`。
+pub fn parse_macho_header(bytes: &[u8]) -> Result<MachHeader, ParseError> {
+    // 复用 Step 01 的 detect:先确认确实是 Mach-O 64 位,再动手解析。
+    if detect(bytes) != Format::MachO64 {
+        return Err(ParseError::UnknownFormat);
+    }
+    let mut r = ByteReader::new(bytes);
+    // Mach-O 64 位头全部按小端读取。逐字段顺序读 8 个 u32。
+    Ok(MachHeader {
+        magic: read_u32_or_eof(&mut r, Endian::Little)?,
+        cputype: read_u32_or_eof(&mut r, Endian::Little)?,
+        cpusubtype: read_u32_or_eof(&mut r, Endian::Little)?,
+        filetype: read_u32_or_eof(&mut r, Endian::Little)?,
+        ncmds: read_u32_or_eof(&mut r, Endian::Little)?,
+        sizeofcmds: read_u32_or_eof(&mut r, Endian::Little)?,
+        flags: read_u32_or_eof(&mut r, Endian::Little)?,
+        reserved: read_u32_or_eof(&mut r, Endian::Little)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +370,65 @@ mod tests {
         // 错误类型能被打印成人话(实现了 Display)
         let msg = format!("{}", ParseError::UnknownFormat);
         assert!(msg.contains("无法识别"), "实际信息: {msg}");
+    }
+
+    // 一个手工构造的 Mach-O 64 位文件头(32 字节,8 个小端 u32)。
+    // 字段值对应一个 x86_64 的可执行文件。
+    const MACHO64_HEADER: [u8; 32] = [
+        0xcf, 0xfa, 0xed, 0xfe, // magic    = 0xFEEDFACF
+        0x07, 0x00, 0x00, 0x01, // cputype  = 0x01000007 (x86_64)
+        0x03, 0x00, 0x00, 0x00, // cpusubtype = 3
+        0x02, 0x00, 0x00, 0x00, // filetype = 2 (MH_EXECUTE 可执行文件)
+        0x10, 0x00, 0x00, 0x00, // ncmds    = 16
+        0x00, 0x01, 0x00, 0x00, // sizeofcmds = 256
+        0x85, 0x00, 0x20, 0x00, // flags    = 0x00200085
+        0x00, 0x00, 0x00, 0x00, // reserved = 0
+    ];
+
+    #[test]
+    fn parses_macho64_header_fields() {
+        let h = parse_macho_header(&MACHO64_HEADER).unwrap();
+        assert_eq!(h.magic, 0xFEED_FACF);
+        assert_eq!(h.cputype, 0x0100_0007);
+        assert_eq!(h.filetype, 2);
+        assert_eq!(h.ncmds, 16);
+        assert_eq!(h.sizeofcmds, 256);
+    }
+
+    #[test]
+    fn macho_header_errors_when_truncated() {
+        // 只给前 10 个字节,凑不齐 32 字节的头
+        let err = parse_macho_header(&MACHO64_HEADER[..10]).unwrap_err();
+        assert!(matches!(err, ParseError::UnexpectedEof { .. }));
+    }
+
+    #[test]
+    fn macho_header_rejects_non_macho() {
+        // ELF 的开头,不是 Mach-O
+        let err = parse_macho_header(&[0x7f, b'E', b'L', b'F', 0, 0, 0, 0]).unwrap_err();
+        assert_eq!(err, ParseError::UnknownFormat);
+    }
+
+    #[test]
+    fn arch_maps_known_cputypes() {
+        assert_eq!(Arch::from_cputype(0x0100_0007), Arch::X86_64);
+        assert_eq!(Arch::from_cputype(0x0100_000C), Arch::Arm64);
+        assert_eq!(Arch::from_cputype(0x0000_0007), Arch::X86);
+        // 不认识的 cputype 保留原值,不丢信息
+        assert_eq!(Arch::from_cputype(0x1234), Arch::Other(0x1234));
+    }
+
+    #[test]
+    fn filetype_maps_known_values() {
+        assert_eq!(FileType::from_u32(2), FileType::Executable);
+        assert_eq!(FileType::from_u32(6), FileType::Dylib);
+        assert_eq!(FileType::from_u32(99), FileType::Other(99));
+    }
+
+    #[test]
+    fn header_exposes_readable_arch_and_filetype() {
+        let h = parse_macho_header(&MACHO64_HEADER).unwrap();
+        assert_eq!(h.arch(), Arch::X86_64);
+        assert_eq!(h.file_type(), FileType::Executable);
     }
 }

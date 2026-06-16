@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
-use reverse::identify;
+use reverse::{identify, parse_macho_header, Format};
 
 // main 现在返回 Result:出错时可以用 ? 直接向上传播,Rust 会帮我们打印错误并以非 0 退出。
 fn main() -> Result<(), Box<dyn Error>> {
@@ -26,7 +26,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // identify 返回 Result:成功打印格式,失败打印"为什么"。
     match identify(&bytes) {
-        Ok(fmt) => println!("格式: {fmt:?}"),
+        Ok(fmt) => {
+            println!("格式: {fmt:?}");
+            // 若是 Mach-O 64,进一步解析并打印文件头。
+            if fmt == Format::MachO64 {
+                match parse_macho_header(&bytes) {
+                    Ok(h) => {
+                        println!("  magic     : {:#010x}", h.magic);
+                        println!("  架构      : {:?}", h.arch());
+                        println!("  文件类型  : {:?}", h.file_type());
+                        println!("  加载命令数: {}", h.ncmds);
+                        println!("  命令总大小: {} 字节", h.sizeofcmds);
+                    }
+                    Err(e) => println!("  (头解析失败:{e})"),
+                }
+            }
+        }
         Err(e) => println!("格式: 无法解析 —— {e}"),
     }
 
