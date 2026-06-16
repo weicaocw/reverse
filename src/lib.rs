@@ -166,6 +166,14 @@ impl<'a> ByteReader<'a> {
         self.pos = pos;
         Some(())
     }
+
+    /// 读出接下来的 `n` 个字节(作为切片)并前进;不够则返回 `None`。
+    pub fn read_bytes(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let slice = self.data.get(self.pos..end)?;
+        self.pos = end;
+        Some(slice)
+    }
 }
 
 /// Mach-O 64 位文件头(对应 C 里的 `mach_header_64`,共 8 个 u32 字段 = 32 字节)。
@@ -280,6 +288,82 @@ impl LoadCommand {
             _ => "LC_UNKNOWN",
         }
     }
+}
+
+/// LC_SEGMENT_64 命令的类型常量。
+pub const LC_SEGMENT_64: u32 = 0x19;
+
+/// 读 u64 并把 EOF 转成带偏移的错误。
+fn read_u64_or_eof(r: &mut ByteReader, endian: Endian) -> Result<u64, ParseError> {
+    let offset = r.position();
+    r.read_u64(endian)
+        .ok_or(ParseError::UnexpectedEof { offset })
+}
+
+/// 把定长(16 字节)、以 0 结尾的名字字段转成 `String`(去掉尾随的 0)。
+fn cstr16_to_string(raw: &[u8]) -> String {
+    let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+    String::from_utf8_lossy(&raw[..end]).into_owned()
+}
+
+/// 一个段(segment):描述程序某一块在内存里的布局(如 __TEXT 代码段、__DATA 数据段)。
+#[derive(Debug, PartialEq, Eq)]
+pub struct Segment {
+    /// 段名,如 "__TEXT"。
+    pub name: String,
+    /// 装载到内存后的虚拟地址。
+    pub vmaddr: u64,
+    /// 在内存里占的字节数。
+    pub vmsize: u64,
+    /// 在文件里的偏移。
+    pub fileoff: u64,
+    /// 在文件里占的字节数。
+    pub filesize: u64,
+    /// 段内含多少个节区(section)。
+    pub nsects: u32,
+}
+
+/// 解析所有 LC_SEGMENT_64 段。遍历加载命令,遇到段命令就读出它的字段。
+pub fn parse_segments(bytes: &[u8]) -> Result<Vec<Segment>, ParseError> {
+    let header = parse_macho_header(bytes)?;
+    let mut r = ByteReader::new(bytes);
+    r.seek(32).ok_or(ParseError::UnexpectedEof { offset: 32 })?;
+
+    let mut segs = Vec::new();
+    for _ in 0..header.ncmds {
+        let start = r.position();
+        let cmd = read_u32_or_eof(&mut r, Endian::Little)?;
+        let cmdsize = read_u32_or_eof(&mut r, Endian::Little)?;
+        if cmd == LC_SEGMENT_64 {
+            let name_off = r.position();
+            let name = {
+                let raw = r
+                    .read_bytes(16)
+                    .ok_or(ParseError::UnexpectedEof { offset: name_off })?;
+                cstr16_to_string(raw)
+            };
+            let vmaddr = read_u64_or_eof(&mut r, Endian::Little)?;
+            let vmsize = read_u64_or_eof(&mut r, Endian::Little)?;
+            let fileoff = read_u64_or_eof(&mut r, Endian::Little)?;
+            let filesize = read_u64_or_eof(&mut r, Endian::Little)?;
+            let _maxprot = read_u32_or_eof(&mut r, Endian::Little)?;
+            let _initprot = read_u32_or_eof(&mut r, Endian::Little)?;
+            let nsects = read_u32_or_eof(&mut r, Endian::Little)?;
+            let _flags = read_u32_or_eof(&mut r, Endian::Little)?;
+            segs.push(Segment {
+                name,
+                vmaddr,
+                vmsize,
+                fileoff,
+                filesize,
+                nsects,
+            });
+        }
+        let next = start + cmdsize as usize;
+        r.seek(next)
+            .ok_or(ParseError::UnexpectedEof { offset: next })?;
+    }
+    Ok(segs)
 }
 
 /// 遍历 Mach-O 的所有加载命令,返回每条的类型与长度。
@@ -533,5 +617,60 @@ mod tests {
             parse_load_commands(&data),
             Err(ParseError::UnexpectedEof { .. })
         ));
+    }
+
+    /// 构造一个含单个 __TEXT 段(无节区)的最小 Mach-O。
+    fn macho_with_one_segment() -> Vec<u8> {
+        let mut v = Vec::new();
+        // 头:ncmds=1, sizeofcmds=72
+        v.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        v.extend_from_slice(&0x0100_0007u32.to_le_bytes());
+        v.extend_from_slice(&3u32.to_le_bytes());
+        v.extend_from_slice(&2u32.to_le_bytes());
+        v.extend_from_slice(&1u32.to_le_bytes()); // ncmds
+        v.extend_from_slice(&72u32.to_le_bytes()); // sizeofcmds
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v.extend_from_slice(&0u32.to_le_bytes());
+        // LC_SEGMENT_64,cmdsize=72
+        v.extend_from_slice(&0x19u32.to_le_bytes());
+        v.extend_from_slice(&72u32.to_le_bytes());
+        let mut name = [0u8; 16];
+        name[..6].copy_from_slice(b"__TEXT");
+        v.extend_from_slice(&name); // segname[16]
+        v.extend_from_slice(&0x1_0000_0000u64.to_le_bytes()); // vmaddr
+        v.extend_from_slice(&0x1000u64.to_le_bytes()); // vmsize
+        v.extend_from_slice(&0u64.to_le_bytes()); // fileoff
+        v.extend_from_slice(&0x1000u64.to_le_bytes()); // filesize
+        v.extend_from_slice(&5u32.to_le_bytes()); // maxprot
+        v.extend_from_slice(&5u32.to_le_bytes()); // initprot
+        v.extend_from_slice(&0u32.to_le_bytes()); // nsects
+        v.extend_from_slice(&0u32.to_le_bytes()); // flags
+        v
+    }
+
+    #[test]
+    fn parses_one_segment() {
+        let segs = parse_segments(&macho_with_one_segment()).unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].name, "__TEXT");
+        assert_eq!(segs[0].vmaddr, 0x1_0000_0000);
+        assert_eq!(segs[0].vmsize, 0x1000);
+        assert_eq!(segs[0].nsects, 0);
+    }
+
+    #[test]
+    fn segments_skip_non_segment_commands() {
+        // 在"一个段 + 一条 LC_SYMTAB"里,只有段被计入
+        let mut data = macho_with_one_segment();
+        // 改成 2 条命令、sizeofcmds = 72 + 16
+        data[16..20].copy_from_slice(&2u32.to_le_bytes()); // ncmds
+        data[20..24].copy_from_slice(&88u32.to_le_bytes()); // sizeofcmds
+                                                            // 追加一条 LC_SYMTAB(cmdsize=16)
+        data.extend_from_slice(&0x02u32.to_le_bytes());
+        data.extend_from_slice(&16u32.to_le_bytes());
+        data.extend_from_slice(&[0u8; 8]);
+        let segs = parse_segments(&data).unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].name, "__TEXT");
     }
 }
