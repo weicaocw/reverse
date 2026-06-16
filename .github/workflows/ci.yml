@@ -1,0 +1,19 @@
+name: CI
+
+# 何时触发:每次 push,以及每个针对仓库的 Pull Request。
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest # 在一台干净的 Linux 机器上跑
+    steps:
+      # 1. 把仓库代码拉到这台机器上
+      - uses: actions/checkout@v4
+      # 2. 安装稳定版 Rust 工具链(rustc + cargo)
+      - uses: dtolnay/rust-toolchain@stable
+      # 3. 编译(--verbose 让日志更详细,出错好定位)
+      - run: cargo build --verbose
+      # 4. 跑全部测试;任何一个失败,整个 CI 就变红
+      - run: cargo test --verbose
