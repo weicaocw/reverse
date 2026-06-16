@@ -180,6 +180,66 @@ pub struct MachHeader {
     pub reserved: u32,
 }
 
+impl MachHeader {
+    /// 可读的 CPU 架构。
+    pub fn arch(&self) -> Arch {
+        Arch::from_cputype(self.cputype)
+    }
+
+    /// 可读的文件类型。
+    pub fn file_type(&self) -> FileType {
+        FileType::from_u32(self.filetype)
+    }
+}
+
+/// CPU 架构,从 Mach-O 的 `cputype` 翻译而来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arch {
+    X86,
+    X86_64,
+    Arm,
+    Arm64,
+    /// 不认识的 cputype,保留原值不丢信息。
+    Other(u32),
+}
+
+impl Arch {
+    /// 把裸 `cputype` 数字映射成可读架构。
+    pub fn from_cputype(cputype: u32) -> Arch {
+        match cputype {
+            0x0000_0007 => Arch::X86,
+            0x0100_0007 => Arch::X86_64,
+            0x0000_000C => Arch::Arm,
+            0x0100_000C => Arch::Arm64,
+            other => Arch::Other(other),
+        }
+    }
+}
+
+/// 文件类型,从 Mach-O 的 `filetype` 翻译而来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileType {
+    Object,
+    Executable,
+    Dylib,
+    Bundle,
+    /// 不认识的 filetype,保留原值。
+    Other(u32),
+}
+
+impl FileType {
+    /// 把裸 `filetype` 数字映射成可读类型。
+    pub fn from_u32(v: u32) -> FileType {
+        match v {
+            1 => FileType::Object,
+            2 => FileType::Executable,
+            6 => FileType::Dylib,
+            8 => FileType::Bundle,
+            other => FileType::Other(other),
+        }
+    }
+}
+
 /// 把 `Option`(读到/没读到)转成 `Result`(读到/EOF 并记下偏移)的小助手。
 fn read_u32_or_eof(r: &mut ByteReader, endian: Endian) -> Result<u32, ParseError> {
     let offset = r.position();
@@ -347,5 +407,28 @@ mod tests {
         // ELF 的开头,不是 Mach-O
         let err = parse_macho_header(&[0x7f, b'E', b'L', b'F', 0, 0, 0, 0]).unwrap_err();
         assert_eq!(err, ParseError::UnknownFormat);
+    }
+
+    #[test]
+    fn arch_maps_known_cputypes() {
+        assert_eq!(Arch::from_cputype(0x0100_0007), Arch::X86_64);
+        assert_eq!(Arch::from_cputype(0x0100_000C), Arch::Arm64);
+        assert_eq!(Arch::from_cputype(0x0000_0007), Arch::X86);
+        // 不认识的 cputype 保留原值,不丢信息
+        assert_eq!(Arch::from_cputype(0x1234), Arch::Other(0x1234));
+    }
+
+    #[test]
+    fn filetype_maps_known_values() {
+        assert_eq!(FileType::from_u32(2), FileType::Executable);
+        assert_eq!(FileType::from_u32(6), FileType::Dylib);
+        assert_eq!(FileType::from_u32(99), FileType::Other(99));
+    }
+
+    #[test]
+    fn header_exposes_readable_arch_and_filetype() {
+        let h = parse_macho_header(&MACHO64_HEADER).unwrap();
+        assert_eq!(h.arch(), Arch::X86_64);
+        assert_eq!(h.file_type(), FileType::Executable);
     }
 }

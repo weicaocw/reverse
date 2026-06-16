@@ -33,8 +33,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 match parse_macho_header(&bytes) {
                     Ok(h) => {
                         println!("  magic     : {:#010x}", h.magic);
-                        println!("  cputype   : {:#010x}", h.cputype);
-                        println!("  filetype  : {}", h.filetype);
+                        println!("  架构      : {:?}", h.arch());
+                        println!("  文件类型  : {:?}", h.file_type());
                         println!("  加载命令数: {}", h.ncmds);
                         println!("  命令总大小: {} 字节", h.sizeofcmds);
                     }
