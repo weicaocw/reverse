@@ -33,7 +33,9 @@ impl std::error::Error for ParseError {}
 pub fn identify(bytes: &[u8]) -> Result<Format, ParseError> {
     // 最短的魔数(PE 的 "MZ")也要 2 字节;不足就是文件太短。
     if bytes.len() < 2 {
-        return Err(ParseError::UnexpectedEof { offset: bytes.len() });
+        return Err(ParseError::UnexpectedEof {
+            offset: bytes.len(),
+        });
     }
     match detect(bytes) {
         Format::Unknown => Err(ParseError::UnknownFormat),
@@ -240,12 +242,18 @@ mod tests {
     #[test]
     fn identify_errors_when_too_short() {
         // 只有 1 个字节,连魔数都凑不齐 → 报"文件太短",并指出在偏移 1 处缺字节
-        assert_eq!(identify(&[0x7f]), Err(ParseError::UnexpectedEof { offset: 1 }));
+        assert_eq!(
+            identify(&[0x7f]),
+            Err(ParseError::UnexpectedEof { offset: 1 })
+        );
     }
 
     #[test]
     fn identify_errors_on_unknown_magic() {
-        assert_eq!(identify(&[0x12, 0x34, 0x56, 0x78]), Err(ParseError::UnknownFormat));
+        assert_eq!(
+            identify(&[0x12, 0x34, 0x56, 0x78]),
+            Err(ParseError::UnknownFormat)
+        );
     }
 
     #[test]
