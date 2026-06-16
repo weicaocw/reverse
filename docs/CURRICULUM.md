@@ -47,7 +47,7 @@
 - [x] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
-- [ ] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
+- [x] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
 - [ ] Step 15 — 提取可见字符串(strings)
 - [ ] Step 16 — 计算字节熵值,标记疑似加壳区段
 
