@@ -47,9 +47,9 @@
 - [x] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
-- [ ] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
-- [ ] Step 15 — 提取可见字符串(strings)
-- [ ] Step 16 — 计算字节熵值,标记疑似加壳区段
+- [x] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
+- [x] Step 15 — 提取可见字符串(strings)
+- [x] Step 16 — 计算字节熵值,标记疑似加壳区段
 
 ### 模块 E — 反汇编(引入第三方 crate)
 - [ ] Step 17 — 接入反汇编库(iced-x86 / capstone),反汇编一段机器码
@@ -62,4 +62,4 @@
 
 ## 进度
 
-当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,进入模块 D(Step 14:hex dump)**。
+当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,模块 D ✅,进入模块 E(Step 17:反汇编,引入第三方 crate)**。

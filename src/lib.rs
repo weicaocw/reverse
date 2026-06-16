@@ -3,6 +3,7 @@
 //! 模块 A 的第一块积木:根据文件开头的"魔数"识别可执行文件格式。
 
 use std::fmt;
+use std::fmt::Write as _;
 
 /// 解析过程中可能出现的错误。每个变体都**携带足够的信息**说明"为什么失败"。
 #[derive(Debug, PartialEq, Eq)]
@@ -563,6 +564,101 @@ pub fn parse_macho_header(bytes: &[u8]) -> Result<MachHeader, ParseError> {
     })
 }
 
+/// 把字节按经典 hexdump 三栏格式渲染:`地址  十六进制(16 字节)  |ASCII|`。
+///
+/// `base` 是第一个字节对应的起始地址(打印在最左列)。每行 16 字节,
+/// 不可打印字符在 ASCII 列用 `.` 代替。
+pub fn hex_dump(bytes: &[u8], base: u64) -> String {
+    let mut out = String::new();
+    for (i, chunk) in bytes.chunks(16).enumerate() {
+        let addr = base + (i * 16) as u64;
+        // 十六进制列:每字节 "xx ",在第 8 字节后多一个空格分组。
+        let mut hex = String::new();
+        for (j, b) in chunk.iter().enumerate() {
+            let _ = write!(hex, "{b:02x} ");
+            if j == 7 {
+                hex.push(' ');
+            }
+        }
+        // ASCII 列:可打印字符原样,其余用 '.'。
+        let ascii: String = chunk
+            .iter()
+            .map(|&b| {
+                if b.is_ascii_graphic() || b == b' ' {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        // 十六进制列定宽 49(16*3 + 第 8 字节后的额外空格),不足补齐对齐。
+        let _ = writeln!(out, "{addr:08x}  {hex:<49}|{ascii}|");
+    }
+    out
+}
+
+/// 扫描字节,提取所有"长度 ≥ `min_len` 的连续可打印字符"片段。
+///
+/// 返回 `(起始偏移, 字符串)` 列表。复刻经典 `strings` 命令:
+/// 程序里的路径、URL、提示文本往往直接暴露意图。
+pub fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut cur = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b.is_ascii_graphic() || b == b' ' {
+            if cur.is_empty() {
+                start = i; // 记下这一段的起点
+            }
+            cur.push(b as char);
+        } else if cur.len() >= min_len {
+            // 遇到不可打印字符:当前片段够长就收下(take 取走并清空 cur)。
+            out.push((start, std::mem::take(&mut cur)));
+        } else {
+            cur.clear(); // 太短,丢弃
+        }
+    }
+    // 文件结尾处可能还攒着一段。
+    if cur.len() >= min_len {
+        out.push((start, cur));
+    }
+    out
+}
+
+/// 计算一段字节的香农熵(单位 bits/byte,范围 0.0 ~ 8.0)。
+///
+/// 熵衡量字节分布的"随机程度":全相同 → 0;均匀用满 256 种值 → 8。
+/// 压缩 / 加密数据熵接近 8,普通代码 / 文本熵较低。
+pub fn shannon_entropy(bytes: &[u8]) -> f64 {
+    if bytes.is_empty() {
+        return 0.0;
+    }
+    // 统计每种字节出现的次数。
+    let mut counts = [0usize; 256];
+    for &b in bytes {
+        counts[b as usize] += 1;
+    }
+    let len = bytes.len() as f64;
+    // H = -Σ p·log2(p)
+    let mut h = 0.0;
+    for &c in counts.iter() {
+        if c > 0 {
+            let p = c as f64 / len;
+            h -= p * p.log2();
+        }
+    }
+    h
+}
+
+/// 按 `block_size` 分块计算熵,返回 `(块起始偏移, 熵值)`。用于定位高熵区段。
+pub fn entropy_blocks(bytes: &[u8], block_size: usize) -> Vec<(usize, f64)> {
+    bytes
+        .chunks(block_size)
+        .enumerate()
+        .map(|(i, chunk)| (i * block_size, shannon_entropy(chunk)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -944,5 +1040,81 @@ mod tests {
         assert_eq!(sec.addr, 0x1_0000_0f00);
         assert_eq!(sec.size, 0x100);
         assert_eq!(sec.offset, 0xf00);
+    }
+
+    #[test]
+    fn entropy_of_empty_is_zero() {
+        assert_eq!(shannon_entropy(&[]), 0.0);
+    }
+
+    #[test]
+    fn entropy_of_uniform_bytes_is_zero() {
+        // 全是同一个字节 → 毫无随机性 → 熵 0
+        assert_eq!(shannon_entropy(&[0x41; 100]), 0.0);
+    }
+
+    #[test]
+    fn entropy_of_all_256_values_is_eight() {
+        // 0..=255 各出现一次 → 完全均匀 → 熵正好 8 bits/byte
+        let data: Vec<u8> = (0..=255).collect();
+        assert!((shannon_entropy(&data) - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn entropy_blocks_split_correctly() {
+        let data = vec![0u8; 10];
+        let blocks = entropy_blocks(&data, 4); // 10 → 块 0,4,8(末块 2 字节)
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].0, 0);
+        assert_eq!(blocks[1].0, 4);
+        assert_eq!(blocks[2].0, 8);
+        // 全 0 → 每块熵都是 0
+        assert!(blocks.iter().all(|&(_, h)| h == 0.0));
+    }
+
+    #[test]
+    fn extracts_strings_with_offsets() {
+        let data = b"\0hello\0\0world!\0";
+        let s = extract_strings(data, 3);
+        assert_eq!(s, vec![(1, "hello".to_string()), (8, "world!".to_string())]);
+    }
+
+    #[test]
+    fn extract_strings_filters_short_runs() {
+        // "ab"(2) 太短被过滤;"hello"(5) 保留
+        let s = extract_strings(b"ab\0hello", 3);
+        assert_eq!(s, vec![(3, "hello".to_string())]);
+    }
+
+    #[test]
+    fn extract_strings_catches_trailing_run() {
+        // 结尾没有终止符,也要能收到
+        let s = extract_strings(b"\0\0tail", 3);
+        assert_eq!(s, vec![(2, "tail".to_string())]);
+    }
+
+    #[test]
+    fn hex_dump_one_line() {
+        let d = hex_dump(b"ABCD", 0);
+        assert!(d.starts_with("00000000  41 42 43 44"), "实际: {d}");
+        assert!(d.contains("|ABCD|"), "实际: {d}");
+        assert_eq!(d.lines().count(), 1);
+    }
+
+    #[test]
+    fn hex_dump_non_printable_becomes_dot() {
+        let d = hex_dump(&[0x00, 0x41, 0xff], 0);
+        // 0x00 和 0xff 不可打印 → '.';0x41 = 'A'
+        assert!(d.contains("|.A.|"), "实际: {d}");
+    }
+
+    #[test]
+    fn hex_dump_multiple_lines_addresses() {
+        let data = vec![0u8; 20]; // 20 字节 → 2 行(16 + 4)
+        let d = hex_dump(&data, 0x1000);
+        let lines: Vec<&str> = d.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("00001000"));
+        assert!(lines[1].starts_with("00001010")); // 第二行地址 = 0x1000 + 16
     }
 }
