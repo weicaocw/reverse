@@ -306,6 +306,21 @@ fn cstr16_to_string(raw: &[u8]) -> String {
     String::from_utf8_lossy(&raw[..end]).into_owned()
 }
 
+/// 一个节区(section):段内更细的划分,如 __TEXT 段里的 __text(代码)、__cstring(字符串)。
+#[derive(Debug, PartialEq, Eq)]
+pub struct Section {
+    /// 节区名,如 "__text"。
+    pub sectname: String,
+    /// 所属段名,如 "__TEXT"。
+    pub segname: String,
+    /// 虚拟地址。
+    pub addr: u64,
+    /// 字节大小。
+    pub size: u64,
+    /// 在文件里的偏移。
+    pub offset: u32,
+}
+
 /// 一个段(segment):描述程序某一块在内存里的布局(如 __TEXT 代码段、__DATA 数据段)。
 #[derive(Debug, PartialEq, Eq)]
 pub struct Segment {
@@ -321,6 +336,8 @@ pub struct Segment {
     pub filesize: u64,
     /// 段内含多少个节区(section)。
     pub nsects: u32,
+    /// 段内的节区列表。
+    pub sections: Vec<Section>,
 }
 
 /// 解析所有 LC_SEGMENT_64 段。遍历加载命令,遇到段命令就读出它的字段。
@@ -350,6 +367,34 @@ pub fn parse_segments(bytes: &[u8]) -> Result<Vec<Segment>, ParseError> {
             let _initprot = read_u32_or_eof(&mut r, Endian::Little)?;
             let nsects = read_u32_or_eof(&mut r, Endian::Little)?;
             let _flags = read_u32_or_eof(&mut r, Endian::Little)?;
+            // 紧跟段头之后是 nsects 个 section_64(每个 80 字节)。
+            let mut sections = Vec::new();
+            for _ in 0..nsects {
+                let off = r.position();
+                let sectname = cstr16_to_string(
+                    r.read_bytes(16)
+                        .ok_or(ParseError::UnexpectedEof { offset: off })?,
+                );
+                let off2 = r.position();
+                let segname = cstr16_to_string(
+                    r.read_bytes(16)
+                        .ok_or(ParseError::UnexpectedEof { offset: off2 })?,
+                );
+                let addr = read_u64_or_eof(&mut r, Endian::Little)?;
+                let size = read_u64_or_eof(&mut r, Endian::Little)?;
+                let offset = read_u32_or_eof(&mut r, Endian::Little)?;
+                // 跳过 align/reloff/nreloc/flags/reserved1..3 共 7 个 u32。
+                for _ in 0..7 {
+                    read_u32_or_eof(&mut r, Endian::Little)?;
+                }
+                sections.push(Section {
+                    sectname,
+                    segname,
+                    addr,
+                    size,
+                    offset,
+                });
+            }
             segs.push(Segment {
                 name,
                 vmaddr,
@@ -357,6 +402,7 @@ pub fn parse_segments(bytes: &[u8]) -> Result<Vec<Segment>, ParseError> {
                 fileoff,
                 filesize,
                 nsects,
+                sections,
             });
         }
         let next = start + cmdsize as usize;
@@ -672,5 +718,59 @@ mod tests {
         let segs = parse_segments(&data).unwrap();
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].name, "__TEXT");
+    }
+
+    /// 含一个 __TEXT 段、段内一个 __text 节区的最小 Mach-O。
+    fn macho_with_one_section() -> Vec<u8> {
+        let mut v = Vec::new();
+        // 头:ncmds=1, sizeofcmds = 72 + 80 = 152
+        v.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        v.extend_from_slice(&0x0100_0007u32.to_le_bytes());
+        v.extend_from_slice(&3u32.to_le_bytes());
+        v.extend_from_slice(&2u32.to_le_bytes());
+        v.extend_from_slice(&1u32.to_le_bytes()); // ncmds
+        v.extend_from_slice(&152u32.to_le_bytes()); // sizeofcmds
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v.extend_from_slice(&0u32.to_le_bytes());
+        // LC_SEGMENT_64,cmdsize=152,nsects=1
+        v.extend_from_slice(&0x19u32.to_le_bytes());
+        v.extend_from_slice(&152u32.to_le_bytes());
+        let mut sname = [0u8; 16];
+        sname[..6].copy_from_slice(b"__TEXT");
+        v.extend_from_slice(&sname);
+        v.extend_from_slice(&0x1_0000_0000u64.to_le_bytes()); // vmaddr
+        v.extend_from_slice(&0x1000u64.to_le_bytes()); // vmsize
+        v.extend_from_slice(&0u64.to_le_bytes()); // fileoff
+        v.extend_from_slice(&0x1000u64.to_le_bytes()); // filesize
+        v.extend_from_slice(&5u32.to_le_bytes()); // maxprot
+        v.extend_from_slice(&5u32.to_le_bytes()); // initprot
+        v.extend_from_slice(&1u32.to_le_bytes()); // nsects = 1
+        v.extend_from_slice(&0u32.to_le_bytes()); // flags
+                                                  // section_64(80 字节)
+        let mut secn = [0u8; 16];
+        secn[..6].copy_from_slice(b"__text");
+        v.extend_from_slice(&secn); // sectname
+        v.extend_from_slice(&sname); // segname __TEXT
+        v.extend_from_slice(&0x1_0000_0f00u64.to_le_bytes()); // addr
+        v.extend_from_slice(&0x100u64.to_le_bytes()); // size
+        v.extend_from_slice(&0xf00u32.to_le_bytes()); // offset
+        for _ in 0..7 {
+            v.extend_from_slice(&0u32.to_le_bytes()); // align/reloff/nreloc/flags/reserved1..3
+        }
+        v
+    }
+
+    #[test]
+    fn parses_section_inside_segment() {
+        let segs = parse_segments(&macho_with_one_section()).unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].nsects, 1);
+        assert_eq!(segs[0].sections.len(), 1);
+        let sec = &segs[0].sections[0];
+        assert_eq!(sec.sectname, "__text");
+        assert_eq!(sec.segname, "__TEXT");
+        assert_eq!(sec.addr, 0x1_0000_0f00);
+        assert_eq!(sec.size, 0x100);
+        assert_eq!(sec.offset, 0xf00);
     }
 }

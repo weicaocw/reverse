@@ -59,6 +59,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 "  {:<12} vmaddr={:#018x} vmsize={:#x} 节区数={}",
                                 s.name, s.vmaddr, s.vmsize, s.nsects
                             );
+                            for sec in &s.sections {
+                                println!(
+                                    "      {:<16} addr={:#018x} size={:#x}",
+                                    sec.sectname, sec.addr, sec.size
+                                );
+                            }
                         }
                     }
                     Err(e) => println!("段解析失败:{e}"),
