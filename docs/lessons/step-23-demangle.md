@@ -1,6 +1,6 @@
 # Step 23:符号反修饰(demangle)—— 让符号名变人话
 
-> 模块：G 扩展 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过 ｜ 上一步：[Step 22](step-22-fat-binary.md)
+> 模块：G 扩展 ｜ 对应提交：`6d99474` ｜ 测试：✅ 通过 ｜ 上一步：[Step 22](step-22-fat-binary.md)
 
 ## 0. 一句话目标
 把符号表里编译器修饰过的名字(`__ZN7reverse4main17h..E`)还原成人类可读形式(`reverse::main`),让 `symbols` 命令真正好用;同时保留 `--raw` 选项看原始名。
