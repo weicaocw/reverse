@@ -44,7 +44,7 @@
 - [x] Step 10 — 解析段(LC_SEGMENT_64),列出段名、虚拟地址、大小
 - [x] Step 11 — 列出段内节区(.text/.data…)
 - [x] Step 12 — 找到入口地址(LC_MAIN entryoff)
-- [ ] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
+- [x] Step 13 — 解析符号表(LC_SYMTAB),列出函数名
 
 ### 模块 D — 分析工具(逆向常用瑞士军刀)
 - [ ] Step 14 — hex dump(地址 + 十六进制 + ASCII 三栏)
@@ -62,4 +62,4 @@
 
 ## 进度
 
-当前:**模块 A ✅ · CI ✅ · 模块 B ✅,进入模块 C(Step 09:遍历加载命令)**。
+当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,进入模块 D(Step 14:hex dump)**。
