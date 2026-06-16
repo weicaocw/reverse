@@ -53,7 +53,15 @@ enum Cmd {
     },
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    // 顶层只负责:跑 run(),出错则友好报告并以非 0 退出码结束。
+    if let Err(e) = run() {
+        eprintln!("revx: 错误: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Info { path } => cmd_info(&path)?,
@@ -67,8 +75,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// 读文件,失败时给出包含路径的友好错误信息。
+fn read_file(path: &str) -> Result<Vec<u8>, String> {
+    fs::read(path).map_err(|e| format!("无法读取 {path}:{e}"))
+}
+
 fn cmd_info(path: &str) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     match identify(&bytes) {
         Ok(fmt) => {
             println!("格式: {fmt:?}");
@@ -91,7 +104,7 @@ fn cmd_info(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_sections(path: &str) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     let segs = parse_segments(&bytes)?;
     for s in &segs {
         println!(
@@ -109,7 +122,7 @@ fn cmd_sections(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_symbols(path: &str, limit: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     let syms = parse_symbols(&bytes)?;
     let named: Vec<_> = syms.iter().filter(|s| !s.name.is_empty()).collect();
     println!("符号: 共 {} 个(有名字 {} 个)", syms.len(), named.len());
@@ -120,7 +133,7 @@ fn cmd_symbols(path: &str, limit: usize) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_strings(path: &str, min: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     let strings = extract_strings(&bytes, min);
     println!("字符串: 共 {} 条(长度≥{min})", strings.len());
     for (off, s) in &strings {
@@ -130,14 +143,14 @@ fn cmd_strings(path: &str, min: usize) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_hexdump(path: &str, len: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     let n = bytes.len().min(len);
     print!("{}", hex_dump(&bytes[..n], 0));
     Ok(())
 }
 
 fn cmd_entropy(path: &str) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     println!("整体熵: {:.3} bits/byte", shannon_entropy(&bytes));
     let high: Vec<_> = entropy_blocks(&bytes, 4096)
         .into_iter()
@@ -151,7 +164,7 @@ fn cmd_entropy(path: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_disasm(path: &str, count: usize) -> Result<(), Box<dyn Error>> {
-    let bytes = fs::read(path)?;
+    let bytes = read_file(path)?;
     let segs = parse_segments(&bytes)?;
     let Some(sec) = segs
         .iter()
@@ -180,5 +193,11 @@ mod tests {
     fn cli_definition_is_valid() {
         // clap 提供的自检:验证我们的命令行定义没有冲突 / 错误。
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn read_file_missing_gives_friendly_error() {
+        let e = read_file("/no/such/revx/file/here").unwrap_err();
+        assert!(e.contains("无法读取"), "实际: {e}");
     }
 }
