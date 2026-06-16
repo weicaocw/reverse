@@ -1,6 +1,6 @@
 # Step 05：加 CI —— 每次 push/PR 自动构建 + 测试
 
-> 模块：CI/工程化 ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过(本地 + CI) ｜ 上一步：[Step 04](step-04-error-handling.md)
+> 模块：CI/工程化 ｜ 对应提交：`da23b4d` ｜ 测试：✅ 通过(本地 + CI) ｜ 上一步：[Step 04](step-04-error-handling.md)
 
 ## 0. 一句话目标
 给仓库加上**持续集成(CI)**:每次 `git push` 或开 Pull Request,GitHub 自动在一台干净机器上跑一遍 `cargo build` + `cargo test`,确保主干永远是绿的。
