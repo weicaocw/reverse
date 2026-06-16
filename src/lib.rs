@@ -157,6 +157,15 @@ impl<'a> ByteReader<'a> {
             Endian::Big => u64::from_be_bytes(bytes),
         })
     }
+
+    /// 把游标跳到绝对位置 `pos`;越过末尾返回 `None`(允许正好停在末尾)。
+    pub fn seek(&mut self, pos: usize) -> Option<()> {
+        if pos > self.data.len() {
+            return None;
+        }
+        self.pos = pos;
+        Some(())
+    }
 }
 
 /// Mach-O 64 位文件头(对应 C 里的 `mach_header_64`,共 8 个 u32 字段 = 32 字节)。
@@ -245,6 +254,56 @@ fn read_u32_or_eof(r: &mut ByteReader, endian: Endian) -> Result<u32, ParseError
     let offset = r.position();
     r.read_u32(endian)
         .ok_or(ParseError::UnexpectedEof { offset })
+}
+
+/// 一条加载命令(load command)的通用头部:类型 + 本条总长度。
+#[derive(Debug, PartialEq, Eq)]
+pub struct LoadCommand {
+    /// 命令类型(LC_* 常量,如 0x19 = LC_SEGMENT_64)。
+    pub cmd: u32,
+    /// 本条命令的总字节数(含这 8 字节头)。
+    pub cmdsize: u32,
+}
+
+impl LoadCommand {
+    /// 把常见的 LC_* 数字翻译成名字;未知则返回 "LC_UNKNOWN"。
+    pub fn name(&self) -> &'static str {
+        match self.cmd {
+            0x19 => "LC_SEGMENT_64",
+            0x01 => "LC_SEGMENT",
+            0x02 => "LC_SYMTAB",
+            0x0B => "LC_DYSYMTAB",
+            0x0C => "LC_LOAD_DYLIB",
+            0x1B => "LC_UUID",
+            0x80000028 => "LC_MAIN",
+            0x80000022 => "LC_DYLD_INFO_ONLY",
+            _ => "LC_UNKNOWN",
+        }
+    }
+}
+
+/// 遍历 Mach-O 的所有加载命令,返回每条的类型与长度。
+///
+/// 加载命令紧跟在 32 字节文件头之后,是一串**变长记录**:每条以
+/// `cmd`(类型)+ `cmdsize`(本条总长度)开头,我们读完头就按 `cmdsize` 跳到下一条。
+pub fn parse_load_commands(bytes: &[u8]) -> Result<Vec<LoadCommand>, ParseError> {
+    let header = parse_macho_header(bytes)?;
+    let mut r = ByteReader::new(bytes);
+    // 加载命令从文件头之后(偏移 32)开始。
+    r.seek(32).ok_or(ParseError::UnexpectedEof { offset: 32 })?;
+
+    let mut cmds = Vec::new();
+    for _ in 0..header.ncmds {
+        let start = r.position();
+        let cmd = read_u32_or_eof(&mut r, Endian::Little)?;
+        let cmdsize = read_u32_or_eof(&mut r, Endian::Little)?;
+        cmds.push(LoadCommand { cmd, cmdsize });
+        // 跳到本条命令末尾 = 本条起点 + cmdsize,即下一条的起点。
+        let next = start + cmdsize as usize;
+        r.seek(next)
+            .ok_or(ParseError::UnexpectedEof { offset: next })?;
+    }
+    Ok(cmds)
 }
 
 /// 解析 Mach-O 64 位文件头。当前支持最常见的小端 64 位变体;
@@ -430,5 +489,49 @@ mod tests {
         let h = parse_macho_header(&MACHO64_HEADER).unwrap();
         assert_eq!(h.arch(), Arch::X86_64);
         assert_eq!(h.file_type(), FileType::Executable);
+    }
+
+    /// 构造一个带 2 条加载命令的最小 Mach-O:头(ncmds=2, sizeofcmds=32)+ 两条 16 字节命令。
+    fn macho_with_two_load_commands() -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]); // magic
+        v.extend_from_slice(&0x0100_0007u32.to_le_bytes()); // cputype x86_64
+        v.extend_from_slice(&3u32.to_le_bytes()); // cpusubtype
+        v.extend_from_slice(&2u32.to_le_bytes()); // filetype 可执行
+        v.extend_from_slice(&2u32.to_le_bytes()); // ncmds = 2
+        v.extend_from_slice(&32u32.to_le_bytes()); // sizeofcmds = 32
+        v.extend_from_slice(&0u32.to_le_bytes()); // flags
+        v.extend_from_slice(&0u32.to_le_bytes()); // reserved
+                                                  // 命令 1:LC_SEGMENT_64(0x19),长度 16(头 8 + 填充 8)
+        v.extend_from_slice(&0x19u32.to_le_bytes());
+        v.extend_from_slice(&16u32.to_le_bytes());
+        v.extend_from_slice(&[0u8; 8]);
+        // 命令 2:LC_SYMTAB(0x02),长度 16
+        v.extend_from_slice(&0x02u32.to_le_bytes());
+        v.extend_from_slice(&16u32.to_le_bytes());
+        v.extend_from_slice(&[0u8; 8]);
+        v
+    }
+
+    #[test]
+    fn parses_two_load_commands() {
+        let data = macho_with_two_load_commands();
+        let cmds = parse_load_commands(&data).unwrap();
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds[0].cmd, 0x19);
+        assert_eq!(cmds[0].cmdsize, 16);
+        assert_eq!(cmds[0].name(), "LC_SEGMENT_64");
+        assert_eq!(cmds[1].name(), "LC_SYMTAB");
+    }
+
+    #[test]
+    fn load_commands_error_when_truncated() {
+        // 头声称有 2 条命令,却没有命令数据 → EOF
+        let mut data = macho_with_two_load_commands();
+        data.truncate(32); // 只留头
+        assert!(matches!(
+            parse_load_commands(&data),
+            Err(ParseError::UnexpectedEof { .. })
+        ));
     }
 }

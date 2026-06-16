@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 // 引入我们自己的库 crate(名字就是 Cargo.toml 里的 package name)。
-use reverse::{identify, parse_macho_header, Format};
+use reverse::{identify, parse_load_commands, parse_macho_header, Format};
 
 // main 现在返回 Result:出错时可以用 ? 直接向上传播,Rust 会帮我们打印错误并以非 0 退出。
 fn main() -> Result<(), Box<dyn Error>> {
@@ -39,6 +39,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                         println!("  命令总大小: {} 字节", h.sizeofcmds);
                     }
                     Err(e) => println!("  (头解析失败:{e})"),
+                }
+                // 列出加载命令
+                match parse_load_commands(&bytes) {
+                    Ok(cmds) => {
+                        println!("加载命令:");
+                        for (i, c) in cmds.iter().enumerate() {
+                            println!("  [{i:2}] {:<20} ({} 字节)", c.name(), c.cmdsize);
+                        }
+                    }
+                    Err(e) => println!("加载命令解析失败:{e}"),
                 }
             }
         }
