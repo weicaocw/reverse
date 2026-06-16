@@ -293,6 +293,32 @@ impl LoadCommand {
 /// LC_SEGMENT_64 命令的类型常量。
 pub const LC_SEGMENT_64: u32 = 0x19;
 
+/// LC_MAIN 命令的类型常量(记录程序入口)。
+pub const LC_MAIN: u32 = 0x8000_0028;
+
+/// 查找程序入口偏移(entryoff):`main` 距文件起点的字节偏移。
+///
+/// 返回 `Ok(Some(off))` 表示找到 LC_MAIN;`Ok(None)` 表示文件没有入口(如动态库)。
+pub fn parse_entry_point(bytes: &[u8]) -> Result<Option<u64>, ParseError> {
+    let header = parse_macho_header(bytes)?;
+    let mut r = ByteReader::new(bytes);
+    r.seek(32).ok_or(ParseError::UnexpectedEof { offset: 32 })?;
+    for _ in 0..header.ncmds {
+        let start = r.position();
+        let cmd = read_u32_or_eof(&mut r, Endian::Little)?;
+        let cmdsize = read_u32_or_eof(&mut r, Endian::Little)?;
+        if cmd == LC_MAIN {
+            // LC_MAIN 体:entryoff(u64) + stacksize(u64)。
+            let entryoff = read_u64_or_eof(&mut r, Endian::Little)?;
+            return Ok(Some(entryoff));
+        }
+        let next = start + cmdsize as usize;
+        r.seek(next)
+            .ok_or(ParseError::UnexpectedEof { offset: next })?;
+    }
+    Ok(None)
+}
+
 /// 读 u64 并把 EOF 转成带偏移的错误。
 fn read_u64_or_eof(r: &mut ByteReader, endian: Endian) -> Result<u64, ParseError> {
     let offset = r.position();
@@ -758,6 +784,31 @@ mod tests {
             v.extend_from_slice(&0u32.to_le_bytes()); // align/reloff/nreloc/flags/reserved1..3
         }
         v
+    }
+
+    #[test]
+    fn finds_entry_point_from_lc_main() {
+        // 头 ncmds=1, sizeofcmds=24;一条 LC_MAIN(cmdsize=24, entryoff=0x1234)
+        let mut v = Vec::new();
+        v.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        v.extend_from_slice(&0x0100_0007u32.to_le_bytes());
+        v.extend_from_slice(&3u32.to_le_bytes());
+        v.extend_from_slice(&2u32.to_le_bytes());
+        v.extend_from_slice(&1u32.to_le_bytes()); // ncmds
+        v.extend_from_slice(&24u32.to_le_bytes()); // sizeofcmds
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v.extend_from_slice(&0u32.to_le_bytes());
+        v.extend_from_slice(&0x8000_0028u32.to_le_bytes()); // LC_MAIN
+        v.extend_from_slice(&24u32.to_le_bytes()); // cmdsize
+        v.extend_from_slice(&0x1234u64.to_le_bytes()); // entryoff
+        v.extend_from_slice(&0u64.to_le_bytes()); // stacksize
+        assert_eq!(parse_entry_point(&v).unwrap(), Some(0x1234));
+    }
+
+    #[test]
+    fn no_entry_point_when_no_lc_main() {
+        // 只有一个段、没有 LC_MAIN → Ok(None)
+        assert_eq!(parse_entry_point(&macho_with_one_segment()).unwrap(), None);
     }
 
     #[test]
