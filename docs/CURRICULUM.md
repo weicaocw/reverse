@@ -58,8 +58,8 @@
 ### 模块 F — CLI 产品化
 - [x] Step 19 — 用 clap 做子命令(`info` / `sections` / `strings` / `disasm` …)
 - [x] Step 20 — 统一错误处理与退出码、彩色输出
-- [ ] Step 21 — release 构建与产物
+- [x] Step 21 — release 构建与产物
 
 ## 进度
 
-当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,模块 D ✅,模块 E ✅,进入模块 F(Step 19:clap 子命令 CLI)**。
+当前:**模块 A ✅ · CI ✅ · 模块 B ✅,模块 C ✅,模块 D ✅,全部模块完成 ✅🎉 revx 成为有库+CLI+CI+反汇编的工业级多功能逆向工具**。

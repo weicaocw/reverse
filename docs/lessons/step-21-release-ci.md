@@ -1,6 +1,6 @@
 # Step 21:release 构建与 CI 产物(课程收官)
 
-> 模块：F CLI 产品化(收官) ｜ 对应提交：`<待回填>` ｜ 测试：✅ 通过(CI 含发布作业) ｜ 上一步：[Step 20](step-20-error-handling-cli.md)
+> 模块：F CLI 产品化(收官) ｜ 对应提交：`1d68258` ｜ 测试：✅ 通过(CI 含发布作业) ｜ 上一步：[Step 20](step-20-error-handling-cli.md)
 
 ## 0. 一句话目标
 给 CI 增加一个**发布作业**:在测试全绿后,用 `cargo build --release` 产出优化过的可执行文件,并作为可下载的**构建产物(artifact)**上传。
